@@ -132,11 +132,11 @@ Main() {
 			printf "'%s:%s:%s-%s:%s:%s' " ${RES}
 			echo
 		} >> "tmp-${myId}-cmd.sh"
-		{	echo 'Command'
-			printf '%s %s %s ' "${0}" "'${Url}'" "'${Title}'"
-			printf "'%s:%s:%s-%s:%s:%s' " ${RES}
-			echo
-		}
+		echo 'Command'
+		printf '%s %s %s ' "${0}" "'${Url}'" "'${Title}'"
+		printf "'%s:%s:%s-%s:%s:%s' " ${RES}
+		echo
+
 		if [ -z "${Title}" ]; then
 			Title="$(basename "${Url}")"
 			Title="${Title%.*}"
