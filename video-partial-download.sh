@@ -49,8 +49,7 @@ vlc_get() {
 		length
 
 	echo "vlc download \"${url}\" from ${sTime} to ${eTime}," \
-		"aprox.length $(_thsSep ${lengthAprox}) bytes" | \
-		tee /dev/stderr
+		"aprox.length $(_thsSep ${lengthAprox}) bytes"
 
 	vlc ${vlcOptions} \
 		--no-one-instance \
@@ -67,11 +66,9 @@ vlc_get() {
 		return 1
 	fi
 	length=$(_fileSize "${title}")
-	echo "length of \"${title}\" is $(_thsSep ${length}) bytes" | \
-		tee /dev/stderr
+	echo "length of \"${title}\" is $(_thsSep ${length}) bytes"
 	[ ${length} -ge $((lengthAprox*90/100)) ] || \
-		echo "Warn: download file \"${title}\" is really short" | \
-		tee /dev/stderr
+		echo "Warn: download file \"${title}\" is really short"
 }
 
 Main() {
@@ -338,12 +335,12 @@ Main() {
 	done
 
 	Title="${Title}-${myId}.mpg"
+	exec > >(tee /dev/stderr)
 
 	if [ $(echo "${intervals}" | wc -w) -eq 1 ]; then
 		vlc_get "${Url}" "${Title}" $((Is${intervals})) \
 		$((Ie${intervals})) $((Il${intervals})) || \
-			echo "error in vlc download" | \
-				tee /dev/stderr
+			echo "error in vlc download"
 	else
 		files="${tmpDir}files.txt"
 		: > "${files}"
@@ -352,34 +349,29 @@ Main() {
 			title="${tmpDir}${i}.mpg"
 			if ! vlc_get "${Url}" "${title}" $((Is${i})) \
 			$((Ie${i})) $((Il${i})); then
-				echo "error in vlc download" | \
-					tee /dev/stderr
+				echo "error in vlc download"
 				err="y"
 			fi
 			echo "file '$(basename "${title}")'" >> "${files}"
 		done
 		if [ -z "${err}" ]; then
-			echo "ffmpeg concat" $(cat "${files}") | \
-				tee /dev/stderr
+			echo "ffmpeg concat" $(cat "${files}")
 			if ! ( cd "${tmpDir}"
 			ffmpeg \
 			-f concat -safe 0 -i "$(basename "${files}")" \
 			-c:v copy "${currDir}${Title}" \
 			> "${tmpDir}${Title}.txt" 2>&1
 			); then
-				echo "error in video concatenation" | \
-					tee /dev/stderr
+				echo "error in video concatenation"
 			fi
 		fi
 	fi
 	if [ -s "${currDir}${Title}" ]; then
 		length=$(_fileSize "${currDir}${Title}")
 		echo "length of \"${currDir}${Title}\" is" \
-			"$(_thsSep ${length}) bytes" | \
-			tee /dev/stderr
+			"$(_thsSep ${length}) bytes"
 	else
-		echo "error" | \
-			tee /dev/stderr
+		echo "error"
 	fi
 	cat "${msgs}" > /dev/stderr
 }
