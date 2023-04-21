@@ -9,9 +9,7 @@ _timeSeconds() {
 	local time="${1}"
 	time="$(printf '%s\n' "${time}" | \
 		sed -nre "s/^([[:digit:]]+):([[:digit:]]+):([[:digit:]]+)$/((\1*60)+\2)*60+\3/p")"
-	[ -n "${time}" ] && \
-		echo $((${time})) || \
-		echo 0
+	echo $((${time:-0}))
 }
 
 _line() {
@@ -21,6 +19,10 @@ _line() {
 		awk -v line="${line}" \
 		'NR == line {print; rc=-1; exit}
 		END{exit rc+1}'
+}
+
+_thsSep() {
+	printf "%'.3d\n" "${@}"
 }
 
 _natural() {
@@ -42,7 +44,7 @@ vlc_get() {
 		length
 
 	echo "vlc download \"${url}\" from ${sTime} to ${eTime}," \
-		"aprox.length $(printf "%'.3d\n" ${lengthAprox}) bytes" \
+		"aprox.length $(_thsSep ${lengthAprox}) bytes" \
 		>> "${msgs}"
 
 	vlc ${vlcOptions} \
@@ -55,17 +57,13 @@ vlc_get() {
 		vlc://quit \
 		> "${title}.txt" 2>&1
 
-	# ! grep -qsiwEe 'failed or not possible' "${title}.txt" && \
-
 	if [ -s "${title}" ]; then
 		length=$(stat --format %s "${title}")
-		echo "length of \"${title}\" is $(printf "%'.3d\n" ${length}) bytes" >> "${msgs}"
-		[ ${length} -ge $((lengthAprox*90/100)) ] || {
-			echo "download file \"${title}\" is really short" >> "${msgs}"
-			return 1
-		}
+		echo "length of \"${title}\" is $(_thsSep ${length}) bytes" >> "${msgs}"
+		[ ${length} -ge $((lengthAprox*90/100)) ] || \
+			echo "Warn: download file \"${title}\" is really short" >> "${msgs}"
 	else
-		echo "download file \"${title}\" does not exist" >> "${msgs}"
+		echo "Err: download file \"${title}\" does not exist" >> "${msgs}"
 		length=0
 		return 1
 	fi
@@ -194,7 +192,7 @@ Main() {
 				sed -nre '/^Length: ([[:digit:]]+).*/{s//\1/;p;q}')" || :
 		fi
 		size=${size:-0}
-		echo "video size is $(printf "%'.3d\n" ${size}) bytes"
+		echo "video size is $(_thsSep ${size}) bytes"
 
 		if [ -z "${Title}" ]; then
 			Title="$(basename "${Url}")"
@@ -295,6 +293,8 @@ Main() {
 			si="${si}$((S${line}))s"
 			seconds=0
 			length=0
+			[ ${se} -ne ${durationSeconds} ] || \
+				se=$((durationSeconds+1))
 			if [ ${ss} -lt ${se} ]; then
 				intervals="${intervals}${i} "
 				let "Is${i}=ss,1"
@@ -315,14 +315,14 @@ Main() {
 				"$(test ${length} -eq 0 || \
 					echo "${seconds} seconds,")" \
 				"$(test ${length} -eq 0 || \
-					echo "aprox. $(printf "%'.3d\n" ${length}) bytes")"
+					echo "aprox. $(_thsSep ${length}) bytes")"
 			Ts=$((Ts+seconds))
 			Tl=$((Tl+length))
 		done
 
 		echo "Downloading ${Ts} seconds," \
 			"$(test ${Tl} -eq 0 || \
-				echo "aprox. $(printf "%'.3d\n" ${Tl}) bytes")"
+				echo "aprox. $(_thsSep ${Tl}) bytes")"
 
 		[ -n "${intervals}" ] || {
 			echo "have not defined any interval"
@@ -366,7 +366,7 @@ Main() {
 	fi
 	length=$(stat --format %s "${currDir}${Title}")
 	echo "length of \"${currDir}${Title}\" is" \
-		"$(printf "%'.3d\n" ${length}) bytes" >> "${msgs}"
+		"$(_thsSep ${length}) bytes" >> "${msgs}"
 	cat "${msgs}" > /dev/stderr
 	echo "Success"
 }
