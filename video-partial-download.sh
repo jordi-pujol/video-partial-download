@@ -5,6 +5,15 @@ _unquote() {
 		sed -re "s/^([\"]([^\"]*)[\"]|[']([^']*)['])$/\2\3/"
 }
 
+_timeSeconds() {
+	local time="${1}"
+	time="$(printf '%s\n' "${time}" | \
+		sed -nre "s/^([[:digit:]]+):([[:digit:]]+):([[:digit:]]+)$/((\1*60)+\2)*60+\3/p")"
+	[ -n "${time}" ] && \
+		echo $((${time})) || \
+		echo 0
+}
+
 _line() {
 	local line=${1}
 	shift
@@ -28,9 +37,10 @@ vlc_get() {
 	local url="${1}" \
 		title="${2}" \
 		sTime="${3}" \
-		eTime="${4}"
+		eTime="${4}" \
+		lengthAprox="${5}"
 
-	echo "vlc download \"${url}\" from ${sTime} to ${eTime}"
+	echo "vlc download \"${url}\" from ${sTime} to ${eTime}, length ${lengthAprox}"
 
 	vlc ${vlcOptions} \
 		--no-one-instance \
@@ -44,7 +54,8 @@ vlc_get() {
 
 	# ! grep -qsiwEe 'failed or not possible' "${title}.txt" && \
 
-	[ -s "${title}" ] || {
+	[ -s "${title}" ] && \
+	[ $(stat --format %s "${title}") -ge $((lengthAprox*90/100)) ] || {
 		echo "error in download"
 		return 1
 	}
@@ -52,7 +63,8 @@ vlc_get() {
 
 Main() {
 	readonly myId="$(date +%s)"
-	readonly tmpDir="./tmp-${myId}/"
+	readonly tmpDir="./tmp-${myId}/" \
+		currDir="$(readlink -f .)/"
 	local Url="" Title="" \
 		ext mux \
 		Sh Sm Ss \
@@ -69,7 +81,7 @@ Main() {
 		s e title files
 
 	mkdir "${tmpDir}"
-	Debug="${Debug:-"y"}"
+	Debug="${Debug:-}"
 	vlcOptions=""
 	if [ -z "${Debug:-}" ]; then
 		vlcOptions="-I dummy"
@@ -111,7 +123,7 @@ Main() {
 		rc=0
 		export DIALOGRC=""
 		RES="$(dialog --stdout --no-shadow --colors \
-		--begin 30 0 --title Messages \
+		--begin 29 0 --title Messages \
 		--tailboxbg "${tmpDir}msgs.txt" 14 172 \
 		--and-widget --begin 0 0 \
 		--title "VLC download video parts" --colors \
@@ -155,10 +167,12 @@ Main() {
 			duration="$(printf '%s\n' "${Info}" | \
 				sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{s//\1/;p;q}')"
 		else
-			duration=0
+			duration=""
 			echo "this URL is invalid"
 		fi
-		echo "video duration is \"${duration}\""
+		durationSeconds="$(_timeSeconds "${duration}")"
+		echo "video duration is \"${duration}\"," \
+			"${durationSeconds} seconds"
 		if [ -s "${Url}" ]; then
 			size="$(stat --format %s "${Url}")"
 		else
@@ -191,6 +205,8 @@ Main() {
 
 		line=0
 		intervals=""
+		Ts=0
+		Tl=0
 		err=""
 		for i in $(seq 1 4); do
 			ss=0
@@ -264,16 +280,38 @@ Main() {
 				err="y"
 			fi
 			si="${si}$((S${line}))s"
-
+			seconds=0
+			length=0
 			if [ ${ss} -lt ${se} ]; then
 				intervals="${intervals}${i} "
 				let "Is${i}=ss,1"
 				let "Ie${i}=se,1"
+				seconds=$((1+se-ss))
+				[ ${durationSeconds} -eq 0 ] || \
+					length=$((seconds*size/durationSeconds))
+				let "Il${i}=length,1"
 			elif [ ${ss} -ne 0 -o ${se} -ne 0 ]; then
+				si="${si} invalid"
 				err="y"
 			fi
-			echo "${si}"
+			if [ ${ss} -gt ${durationSeconds} -o \
+			${se} -gt ${durationSeconds} ]; then
+				si="${si} out of time limits"
+				err="y"
+			fi
+			echo "${si} from ${ss} to ${se}," \
+				"$(test ${length} -eq 0 || \
+					echo "${seconds} seconds,")" \
+				"$(test ${length} -eq 0 || \
+					echo "aprox. $(printf "%'.3d\n" ${length}) bytes")"
+			Ts=$((Ts+seconds))
+			Tl=$((Tl+length))
 		done
+
+		echo "Downloading ${Ts} seconds," \
+			"$(test ${Tl} -eq 0 || \
+				echo "aprox. $(printf "%'.3d\n" ${Tl}) bytes")"
+
 		[ -n "${intervals}" ] || {
 			echo "have not defined any interval"
 			err="y"
@@ -283,7 +321,8 @@ Main() {
 	Title="${Title}-${myId}.mpg"
 
 	if [ $(echo "${intervals}" | wc -w) -eq 1 ]; then
-		vlc_get "${Url}" "${Title}" $((Is${intervals})) $((Ie${intervals})) || {
+		vlc_get "${Url}" "${Title}" $((Is${intervals})) \
+		$((Ie${intervals})) $((Il${intervals})) || {
 			echo "error in vlc download"
 			exit 1
 		}
@@ -293,7 +332,8 @@ Main() {
 		err=""
 		for i in ${intervals}; do
 			title="${tmpDir}${i}.mpg"
-			if ! vlc_get "${Url}" "${title}" $((Is${i})) $((Ie${i})); then
+			if ! vlc_get "${Url}" "${title}" $((Is${i})) \
+			$((Ie${i})) $((Il${i})); then
 				echo "error in vlc download"
 				err="y"
 			fi
@@ -302,8 +342,9 @@ Main() {
 		if [ -z "${err}" ]; then
 			echo "ffmpeg concat" $(cat "${files}")
 			( cd "${tmpDir}"
-			ffmpeg -f concat -safe 0 -i "$(basename "${files}")" \
-			-c:v copy "../${Title}" ) || {
+			ffmpeg -quiet \
+			-f concat -safe 0 -i "$(basename "${files}")" \
+			-c:v copy "${currDir}${Title}" ) || {
 				echo "error in video concatenation"
 				cat "./msgs.txt"
 				exit 1
