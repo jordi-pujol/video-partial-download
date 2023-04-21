@@ -38,9 +38,12 @@ vlc_get() {
 		title="${2}" \
 		sTime="${3}" \
 		eTime="${4}" \
-		lengthAprox="${5}"
+		lengthAprox="${5}" \
+		length
 
-	echo "vlc download \"${url}\" from ${sTime} to ${eTime}, length ${lengthAprox}"
+	echo "vlc download \"${url}\" from ${sTime} to ${eTime}," \
+		"aprox.length $(printf "%'.3d\n" ${lengthAprox}) bytes" \
+		>> "${msgs}"
 
 	vlc ${vlcOptions} \
 		--no-one-instance \
@@ -50,21 +53,30 @@ vlc_get() {
 		--stop-time ${eTime} \
 		--run-time $((4+eTime-sTime)) \
 		vlc://quit \
-		2>&1 | tee "${title}.txt"
+		> "${title}.txt" 2>&1
 
 	# ! grep -qsiwEe 'failed or not possible' "${title}.txt" && \
 
-	[ -s "${title}" ] && \
-	[ $(stat --format %s "${title}") -ge $((lengthAprox*90/100)) ] || {
-		echo "error in download"
+	if [ -s "${title}" ]; then
+		length=$(stat --format %s "${title}")
+		echo "length of \"${title}\" is $(printf "%'.3d\n" ${length}) bytes" >> "${msgs}"
+		[ ${length} -ge $((lengthAprox*90/100)) ] || {
+			echo "download file \"${title}\" is really short" >> "${msgs}"
+			return 1
+		}
+	else
+		echo "download file \"${title}\" does not exist" >> "${msgs}"
+		length=0
 		return 1
-	}
+	fi
 }
 
 Main() {
-	readonly myId="$(date +%s)"
-	readonly tmpDir="./tmp-${myId}/" \
+	readonly myId="$(date +%s)" \
 		currDir="$(readlink -f .)/"
+	readonly tmpDir="${currDir}tmp-${myId}/"
+	readonly msgs="${tmpDir}msgs.txt"
+
 	local Url="" Title="" \
 		ext mux \
 		Sh Sm Ss \
@@ -76,16 +88,17 @@ Main() {
 		S16="" S17="" S18="0" \
 		S19="" S20="" S21="0" \
 		S22="" S23="" S24="0" \
+		vlcOptions \
 		Eh Em Es \
-		line intervals i \
-		s e title files
+		line intervals i j k \
+		arg s e title files \
+		rc
 
 	mkdir "${tmpDir}"
-	Debug="${Debug:-}"
 	vlcOptions=""
-	if [ -z "${Debug:-}" ]; then
+	if [ -z "${Debug:=}" ]; then
 		vlcOptions="-I dummy"
-	elif [ "${Debug:-}" = "xtrace" ]; then
+	elif [ "${Debug}" = "xtrace" ]; then
 		vlcOptions="-v"
 		set +x
 		export PS4='+\t ${LINENO}:${FUNCNAME:+"${FUNCNAME}:"} '
@@ -93,7 +106,7 @@ Main() {
 		set -x
 	fi
 
-	echo "Messages" > "${tmpDir}msgs.txt"
+	echo "Messages" > "${msgs}"
 
 	Url="${1:-}"
 	Title="${2:-}"
@@ -124,7 +137,7 @@ Main() {
 		export DIALOGRC=""
 		RES="$(dialog --stdout --no-shadow --colors \
 		--begin 29 0 --title Messages \
-		--tailboxbg "${tmpDir}msgs.txt" 14 172 \
+		--tailboxbg "${msgs}" 14 172 \
 		--and-widget --begin 0 0 \
 		--title "VLC download video parts" --colors \
 		--extra-button --extra-label "Info" \
@@ -294,8 +307,7 @@ Main() {
 				si="${si} invalid"
 				err="y"
 			fi
-			if [ ${ss} -gt ${durationSeconds} -o \
-			${se} -gt ${durationSeconds} ]; then
+			if [ ${se} -gt $((durationSeconds+1)) ]; then
 				si="${si} out of time limits"
 				err="y"
 			fi
@@ -316,14 +328,15 @@ Main() {
 			echo "have not defined any interval"
 			err="y"
 		}
-	done >> "${tmpDir}msgs.txt"
+	done >> "${msgs}"
 
 	Title="${Title}-${myId}.mpg"
 
 	if [ $(echo "${intervals}" | wc -w) -eq 1 ]; then
 		vlc_get "${Url}" "${Title}" $((Is${intervals})) \
 		$((Ie${intervals})) $((Il${intervals})) || {
-			echo "error in vlc download"
+			echo "error in vlc download" >> "${msgs}"
+			cat "${msgs}" >&2
 			exit 1
 		}
 	else
@@ -334,24 +347,27 @@ Main() {
 			title="${tmpDir}${i}.mpg"
 			if ! vlc_get "${Url}" "${title}" $((Is${i})) \
 			$((Ie${i})) $((Il${i})); then
-				echo "error in vlc download"
+				echo "error in vlc download" >> "${msgs}"
 				err="y"
 			fi
 			echo "file '$(basename "${title}")'" >> "${files}"
 		done
 		if [ -z "${err}" ]; then
-			echo "ffmpeg concat" $(cat "${files}")
+			echo "ffmpeg concat" $(cat "${files}") >> "${msgs}"
 			( cd "${tmpDir}"
-			ffmpeg -quiet \
+			ffmpeg -loglevel quiet \
 			-f concat -safe 0 -i "$(basename "${files}")" \
 			-c:v copy "${currDir}${Title}" ) || {
-				echo "error in video concatenation"
-				cat "./msgs.txt"
+				echo "error in video concatenation" >> "${msgs}"
+				cat "${msgs}" >&2
 				exit 1
 			}
 		fi
-	fi > /dev/stderr
-	cat "${tmpDir}msgs.txt" > /dev/stderr
+	fi
+	length=$(stat --format %s "${currDir}${Title}")
+	echo "length of \"${currDir}${Title}\" is" \
+		"$(printf "%'.3d\n" ${length}) bytes" >> "${msgs}"
+	cat "${msgs}" > /dev/stderr
 	echo "Success"
 }
 
