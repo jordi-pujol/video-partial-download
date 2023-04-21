@@ -12,6 +12,11 @@ _timeSeconds() {
 	echo $((${time:-0}))
 }
 
+_fileSize() {
+	local f="${1}"
+	stat --format %s "${f}"
+}
+
 _line() {
 	local line=${1}
 	shift
@@ -44,7 +49,8 @@ vlc_get() {
 		length
 
 	echo "vlc download \"${url}\" from ${sTime} to ${eTime}," \
-		"aprox.length $(_thsSep ${lengthAprox}) bytes"
+		"aprox.length $(_thsSep ${lengthAprox}) bytes" | \
+		tee /dev/stderr
 
 	vlc ${vlcOptions} \
 		--no-one-instance \
@@ -54,16 +60,18 @@ vlc_get() {
 		--stop-time ${eTime} \
 		--run-time $((4+eTime-sTime)) \
 		vlc://quit \
-		> "${title}.txt" 2>&1
+		> "${tmpDir}$(basename "${title}").txt" 2>&1
 
 	if [ ! -s "${title}" ]; then
 		echo "Err: download file \"${title}\" does not exist"
 		return 1
 	fi
-	length=$(stat --format %s "${title}")
-	echo "length of \"${title}\" is $(_thsSep ${length}) bytes"
+	length=$(_fileSize "${title}")
+	echo "length of \"${title}\" is $(_thsSep ${length}) bytes" | \
+		tee /dev/stderr
 	[ ${length} -ge $((lengthAprox*90/100)) ] || \
-		echo "Warn: download file \"${title}\" is really short"
+		echo "Warn: download file \"${title}\" is really short" | \
+		tee /dev/stderr
 }
 
 Main() {
@@ -150,11 +158,6 @@ Main() {
 			exit 0
 
 		Url="$(_line 1 "${RES}")"
-		[ -n "${Url}" ] || {
-			echo "URL must be specified"
-			continue
-		}
-
 		Title="$(_line 2 "${RES}")"
 		RES="$(printf '%s\n' "${RES}" | \
 			sed -re '/^[[:blank:]]*$/s//0/' | \
@@ -169,6 +172,11 @@ Main() {
 		printf "'%s:%s:%s-%s:%s:%s' " ${RES}
 		echo
 
+		[ -n "${Url}" ] || {
+			echo "URL must be specified"
+			continue
+		}
+
 		Info="$(LANGUAGE=C \
 			ffmpeg -hide_banner -y -i "${Url}" 2>&1 | \
 			sed -n '/^Input #0/,/^At least one/ {/^[^A]/p}')" || :
@@ -176,21 +184,22 @@ Main() {
 			duration="$(printf '%s\n' "${Info}" | \
 				sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{s//\1/;p;q}')"
 		else
-			duration=""
+			duration="0:0:0"
 			echo "this URL is invalid"
 		fi
 		durationSeconds="$(_timeSeconds "${duration}")"
 		echo "video duration is \"${duration}\"," \
 			"${durationSeconds} seconds"
 		if [ -s "${Url}" ]; then
-			size="$(stat --format %s "${Url}")"
+			size="$(_fileSize "${Url}")"
 		else
 			size="$(LANGUAGE=C \
 				wget --verbose --spider -T 7 --no-check-certificate "${Url}" 2>&1 | \
 				sed -nre '/^Length: ([[:digit:]]+).*/{s//\1/;p;q}')" || :
 		fi
-		size=${size:-0}
-		echo "video size is $(_thsSep ${size}) bytes"
+		[ ${size:=0} -eq 0 ] && \
+			echo "video size is invalid" || \
+			echo "video size is $(_thsSep ${size}) bytes"
 
 		if [ -z "${Title}" ]; then
 			Title="$(basename "${Url}")"
@@ -297,7 +306,7 @@ Main() {
 				intervals="${intervals}${i} "
 				let "Is${i}=ss,1"
 				let "Ie${i}=se,1"
-				seconds=$((1+se-ss))
+				seconds=$((se-ss))
 				[ ${durationSeconds} -eq 0 ] || \
 					length=$((seconds*size/durationSeconds))
 				let "Il${i}=length,1"
@@ -333,7 +342,8 @@ Main() {
 	if [ $(echo "${intervals}" | wc -w) -eq 1 ]; then
 		vlc_get "${Url}" "${Title}" $((Is${intervals})) \
 		$((Ie${intervals})) $((Il${intervals})) || \
-			echo "error in vlc download"
+			echo "error in vlc download" | \
+				tee /dev/stderr
 	else
 		files="${tmpDir}files.txt"
 		: > "${files}"
@@ -342,27 +352,34 @@ Main() {
 			title="${tmpDir}${i}.mpg"
 			if ! vlc_get "${Url}" "${title}" $((Is${i})) \
 			$((Ie${i})) $((Il${i})); then
-				echo "error in vlc download"
+				echo "error in vlc download" | \
+					tee /dev/stderr
 				err="y"
 			fi
 			echo "file '$(basename "${title}")'" >> "${files}"
 		done
 		if [ -z "${err}" ]; then
-			echo "ffmpeg concat" $(cat "${files}")
+			echo "ffmpeg concat" $(cat "${files}") | \
+				tee /dev/stderr
 			if ! ( cd "${tmpDir}"
-			ffmpeg -loglevel quiet \
+			ffmpeg \
 			-f concat -safe 0 -i "$(basename "${files}")" \
-			-c:v copy "${currDir}${Title}" ); then
-				echo "error in video concatenation"
+			-c:v copy "${currDir}${Title}" \
+			> "${tmpDir}${Title}.txt" 2>&1
+			); then
+				echo "error in video concatenation" | \
+					tee /dev/stderr
 			fi
 		fi
 	fi
 	if [ -s "${currDir}${Title}" ]; then
-		length=$(stat --format %s "${currDir}${Title}")
+		length=$(_fileSize "${currDir}${Title}")
 		echo "length of \"${currDir}${Title}\" is" \
-		"$(_thsSep ${length}) bytes"
+			"$(_thsSep ${length}) bytes" | \
+			tee /dev/stderr
 	else
-		echo "error"
+		echo "error" | \
+			tee /dev/stderr
 	fi
 	cat "${msgs}" > /dev/stderr
 }
