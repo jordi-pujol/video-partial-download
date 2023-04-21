@@ -52,6 +52,7 @@ vlc_get() {
 
 Main() {
 	readonly myId="$(date +%s)"
+	readonly tmpDir="./tmp-${myId}/"
 	local Url="" Title="" \
 		ext mux \
 		Sh Sm Ss \
@@ -67,7 +68,7 @@ Main() {
 		line intervals i \
 		s e title files
 
-	mkdir "./tmp-${myId}"
+	mkdir "${tmpDir}"
 	Debug="${Debug:-"y"}"
 	vlcOptions=""
 	if [ -z "${Debug:-}" ]; then
@@ -76,11 +77,11 @@ Main() {
 		vlcOptions="-v"
 		set +x
 		export PS4='+\t ${LINENO}:${FUNCNAME:+"${FUNCNAME}:"} '
-		exec {BASH_XTRACEFD}>> "./tmp-${myId}/log.txt"
+		exec {BASH_XTRACEFD}>> "${tmpDir}log.txt"
 		set -x
 	fi
 
-	echo "Messages" > "./tmp-${myId}/msgs.txt"
+	echo "Messages" > "${tmpDir}msgs.txt"
 
 	Url="${1:-}"
 	Title="${2:-}"
@@ -105,22 +106,27 @@ Main() {
 	done
 
 	err="y"
-	while [ -n "${err}" ]; do
+	rc=1
+	while [ -n "${err}" -o ${rc} -ne 0 ]; do
+		rc=0
 		export DIALOGRC=""
 		RES="$(dialog --stdout --no-shadow --colors \
 		--begin 30 0 --title Messages \
-		--tailboxbg "./tmp-${myId}/msgs.txt" 14 172 \
+		--tailboxbg "${tmpDir}msgs.txt" 14 172 \
 		--and-widget --begin 0 0 \
---title "VLC download video parts" --colors \
---form ' Enter Values, press Enter:' 28 172 20 \
-'' 1 1 'URL . . . . . >' 1 1 0 0 '' 1 22 "${Url}" 1 22 50 1024 \
-'' 3 1 'Description . ' 3 1 0 0 '' 3 22 "${Title}" 3 22 50 1024 \
-'' 5 1 'Interval . . ' 5 1 0 0 '' 5 22 "${S1}" 5 22 4 4 '' 5 26 'h' 5 26 0 0 '' 5 27 "${S2}" 5 27 3 3 '' 5 30 'm' 5 30 0 0 '' 5 31 "${S3}" 5 31 3 3 '' 5 34 's-' 5 34 0 0 '' 5 36 "${S4}" 5 36 4 4 '' 5 40 'h' 5 40 0 0 '' 5 41 "${S5}" 5 41 3 3 '' 5 44 'm' 5 44 0 0 '' 5 45 "${S6}" 5 45 3 3 '' 5 48 's' 5 48 0 0 \
-'' 7 1 'Interval . . ' 7 1 0 0 '' 7 22 "${S7}" 7 22 4 4 '' 7 26 'h' 7 26 0 0 '' 7 27 "${S8}" 7 27 3 3 '' 7 30 'm' 7 30 0 0 '' 7 31 "${S9}" 7 31 3 3 '' 7 34 's-' 7 34 0 0 '' 7 36 "${S10}" 7 36 4 4 '' 7 40 'h' 7 40 0 0 '' 7 41 "${S11}" 7 41 3 3 '' 7 44 'm' 7 44 0 0 '' 7 45 "${S12}" 7 45 3 3 '' 7 48 's' 7 48 0 0 \
-'' 9 1 'Interval . . ' 9 1 0 0 '' 9 22 "${S13}" 9 22 4 4 '' 9 26 'h' 9 26 0 0 '' 9 27 "${S14}" 9 27 3 3 '' 9 30 'm' 9 30 0 0 '' 9 31 "${S15}" 9 31 3 3 '' 9 34 's-' 9 34 0 0 '' 9 36 "${S16}" 9 36 4 4 '' 9 40 'h' 9 40 0 0 '' 9 41 "${S17}" 9 41 3 3 '' 9 44 'm' 9 44 0 0 '' 9 45 "${S18}" 9 45 3 3 '' 9 48 's' 9 48 0 0 \
-'' 11 1 'Interval . . ' 11 1 0 0 '' 11 22 "${S19}" 11 22 4 4 '' 11 26 'h' 11 26 0 0 '' 11 27 "${S20}" 11 27 3 3 '' 11 30 'm' 11 30 0 0 '' 11 31 "${S21}" 11 31 3 3 '' 11 34 's-' 11 34 0 0 '' 11 36 "${S22}" 11 36 4 4 '' 11 40 'h' 11 40 0 0 '' 11 41 "${S23}" 11 41 3 3 '' 11 44 'm' 11 44 0 0 '' 11 45 "${S24}" 11 45 3 3 '' 11 48 's' 11 48 0 0 \
-)" || \
-		exit 1
+		--title "VLC download video parts" --colors \
+		--extra-button --extra-label "Info" \
+		--form ' Enter Values, press Enter:' 28 172 20 \
+		'' 1 1 'URL . . . . . >' 1 1 0 0 '' 1 22 "${Url}" 1 22 50 1024 \
+		'' 3 1 'Description . ' 3 1 0 0 '' 3 22 "${Title}" 3 22 50 1024 \
+		'' 5 1 'Interval . . ' 5 1 0 0 '' 5 22 "${S1}" 5 22 4 4 '' 5 26 'h' 5 26 0 0 '' 5 27 "${S2}" 5 27 3 3 '' 5 30 'm' 5 30 0 0 '' 5 31 "${S3}" 5 31 3 3 '' 5 34 's-' 5 34 0 0 '' 5 36 "${S4}" 5 36 4 4 '' 5 40 'h' 5 40 0 0 '' 5 41 "${S5}" 5 41 3 3 '' 5 44 'm' 5 44 0 0 '' 5 45 "${S6}" 5 45 3 3 '' 5 48 's' 5 48 0 0 \
+		'' 7 1 'Interval . . ' 7 1 0 0 '' 7 22 "${S7}" 7 22 4 4 '' 7 26 'h' 7 26 0 0 '' 7 27 "${S8}" 7 27 3 3 '' 7 30 'm' 7 30 0 0 '' 7 31 "${S9}" 7 31 3 3 '' 7 34 's-' 7 34 0 0 '' 7 36 "${S10}" 7 36 4 4 '' 7 40 'h' 7 40 0 0 '' 7 41 "${S11}" 7 41 3 3 '' 7 44 'm' 7 44 0 0 '' 7 45 "${S12}" 7 45 3 3 '' 7 48 's' 7 48 0 0 \
+		'' 9 1 'Interval . . ' 9 1 0 0 '' 9 22 "${S13}" 9 22 4 4 '' 9 26 'h' 9 26 0 0 '' 9 27 "${S14}" 9 27 3 3 '' 9 30 'm' 9 30 0 0 '' 9 31 "${S15}" 9 31 3 3 '' 9 34 's-' 9 34 0 0 '' 9 36 "${S16}" 9 36 4 4 '' 9 40 'h' 9 40 0 0 '' 9 41 "${S17}" 9 41 3 3 '' 9 44 'm' 9 44 0 0 '' 9 45 "${S18}" 9 45 3 3 '' 9 48 's' 9 48 0 0 \
+		'' 11 1 'Interval . . ' 11 1 0 0 '' 11 22 "${S19}" 11 22 4 4 '' 11 26 'h' 11 26 0 0 '' 11 27 "${S20}" 11 27 3 3 '' 11 30 'm' 11 30 0 0 '' 11 31 "${S21}" 11 31 3 3 '' 11 34 's-' 11 34 0 0 '' 11 36 "${S22}" 11 36 4 4 '' 11 40 'h' 11 40 0 0 '' 11 41 "${S23}" 11 41 3 3 '' 11 44 'm' 11 44 0 0 '' 11 45 "${S24}" 11 45 3 3 '' 11 48 's' 11 48 0 0 \
+		)" || \
+			rc=${?}
+		[ ${rc} -ne 1 -a ${rc} -ne 255 ] || \
+			exit 0
 
 		Url="$(_line 1 "${RES}")"
 		[ -n "${Url}" ] || {
@@ -136,13 +142,14 @@ Main() {
 			printf '%s %s %s ' "${0}" "'${Url}'" "'${Title}'"
 			printf "'%s:%s:%s-%s:%s:%s' " ${RES}
 			echo
-		} >> "./tmp-${myId}/cmd.sh"
+		} >> "${tmpDir}cmd.sh"
 		echo 'Command'
 		printf '%s %s %s ' "${0}" "'${Url}'" "'${Title}'"
 		printf "'%s:%s:%s-%s:%s:%s' " ${RES}
 		echo
 
-		Info="$(ffmpeg -hide_banner -y -i "${Url}" 2>&1 | \
+		Info="$(LANGUAGE=C \
+			ffmpeg -hide_banner -y -i "${Url}" 2>&1 | \
 			sed -n '/^Input #0/,/^At least one/ {/^[^A]/p}')" || :
 		if [ -n "${Info}" ]; then
 			duration="$(printf '%s\n' "${Info}" | \
@@ -155,10 +162,12 @@ Main() {
 		if [ -s "${Url}" ]; then
 			size="$(stat --format %s "${Url}")"
 		else
-			#wget -nv --spider -T 7 --no-check-certificate 'file:///home
-			size=""
+			size="$(LANGUAGE=C \
+				wget --verbose --spider -T 7 --no-check-certificate "${Url}" 2>&1 | \
+				sed -nre '/^Length: ([[:digit:]]+).*/{s//\1/;p;q}')" || :
 		fi
-		echo "video size is \"${size}\" bytes"
+		size=${size:-0}
+		echo "video size is $(printf "%'.3d\n" ${size}) bytes"
 
 		if [ -z "${Title}" ]; then
 			Title="$(basename "${Url}")"
@@ -269,7 +278,7 @@ Main() {
 			echo "have not defined any interval"
 			err="y"
 		}
-	done >> "./tmp-${myId}/msgs.txt"
+	done >> "${tmpDir}msgs.txt"
 
 	Title="${Title}-${myId}.mpg"
 
@@ -279,11 +288,11 @@ Main() {
 			exit 1
 		}
 	else
-		files="./tmp-${myId}/files.txt"
+		files="${tmpDir}files.txt"
 		: > "${files}"
 		err=""
 		for i in ${intervals}; do
-			title="./tmp-${myId}/${i}.mpg"
+			title="${tmpDir}${i}.mpg"
 			if ! vlc_get "${Url}" "${title}" $((Is${i})) $((Ie${i})); then
 				echo "error in vlc download"
 				err="y"
@@ -292,7 +301,7 @@ Main() {
 		done
 		if [ -z "${err}" ]; then
 			echo "ffmpeg concat" $(cat "${files}")
-			( cd "./tmp-${myId}/"
+			( cd "${tmpDir}"
 			ffmpeg -f concat -safe 0 -i "$(basename "${files}")" \
 			-c:v copy "../${Title}" ) || {
 				echo "error in video concatenation"
@@ -301,7 +310,7 @@ Main() {
 			}
 		fi
 	fi > /dev/stderr
-	cat "./tmp-${myId}/msgs.txt" > /dev/stderr
+	cat "${tmpDir}msgs.txt" > /dev/stderr
 	echo "Success"
 }
 
