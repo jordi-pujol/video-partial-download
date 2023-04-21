@@ -44,8 +44,7 @@ vlc_get() {
 		length
 
 	echo "vlc download \"${url}\" from ${sTime} to ${eTime}," \
-		"aprox.length $(_thsSep ${lengthAprox}) bytes" \
-		>> "${msgs}"
+		"aprox.length $(_thsSep ${lengthAprox}) bytes"
 
 	vlc ${vlcOptions} \
 		--no-one-instance \
@@ -57,16 +56,14 @@ vlc_get() {
 		vlc://quit \
 		> "${title}.txt" 2>&1
 
-	if [ -s "${title}" ]; then
-		length=$(stat --format %s "${title}")
-		echo "length of \"${title}\" is $(_thsSep ${length}) bytes" >> "${msgs}"
-		[ ${length} -ge $((lengthAprox*90/100)) ] || \
-			echo "Warn: download file \"${title}\" is really short" >> "${msgs}"
-	else
-		echo "Err: download file \"${title}\" does not exist" >> "${msgs}"
-		length=0
+	if [ ! -s "${title}" ]; then
+		echo "Err: download file \"${title}\" does not exist"
 		return 1
 	fi
+	length=$(stat --format %s "${title}")
+	echo "length of \"${title}\" is $(_thsSep ${length}) bytes"
+	[ ${length} -ge $((lengthAprox*90/100)) ] || \
+		echo "Warn: download file \"${title}\" is really short"
 }
 
 Main() {
@@ -104,7 +101,8 @@ Main() {
 		set -x
 	fi
 
-	echo "Messages" > "${msgs}"
+	exec > "${msgs}"
+	echo "Messages"
 
 	Url="${1:-}"
 	Title="${2:-}"
@@ -328,17 +326,14 @@ Main() {
 			echo "have not defined any interval"
 			err="y"
 		}
-	done >> "${msgs}"
+	done
 
 	Title="${Title}-${myId}.mpg"
 
 	if [ $(echo "${intervals}" | wc -w) -eq 1 ]; then
 		vlc_get "${Url}" "${Title}" $((Is${intervals})) \
-		$((Ie${intervals})) $((Il${intervals})) || {
-			echo "error in vlc download" >> "${msgs}"
-			cat "${msgs}" >&2
-			exit 1
-		}
+		$((Ie${intervals})) $((Il${intervals})) || \
+			echo "error in vlc download"
 	else
 		files="${tmpDir}files.txt"
 		: > "${files}"
@@ -347,28 +342,29 @@ Main() {
 			title="${tmpDir}${i}.mpg"
 			if ! vlc_get "${Url}" "${title}" $((Is${i})) \
 			$((Ie${i})) $((Il${i})); then
-				echo "error in vlc download" >> "${msgs}"
+				echo "error in vlc download"
 				err="y"
 			fi
 			echo "file '$(basename "${title}")'" >> "${files}"
 		done
 		if [ -z "${err}" ]; then
-			echo "ffmpeg concat" $(cat "${files}") >> "${msgs}"
-			( cd "${tmpDir}"
+			echo "ffmpeg concat" $(cat "${files}")
+			if ! ( cd "${tmpDir}"
 			ffmpeg -loglevel quiet \
 			-f concat -safe 0 -i "$(basename "${files}")" \
-			-c:v copy "${currDir}${Title}" ) || {
-				echo "error in video concatenation" >> "${msgs}"
-				cat "${msgs}" >&2
-				exit 1
-			}
+			-c:v copy "${currDir}${Title}" ); then
+				echo "error in video concatenation"
+			fi
 		fi
 	fi
-	length=$(stat --format %s "${currDir}${Title}")
-	echo "length of \"${currDir}${Title}\" is" \
-		"$(_thsSep ${length}) bytes" >> "${msgs}"
+	if [ -s "${currDir}${Title}" ]; then
+		length=$(stat --format %s "${currDir}${Title}")
+		echo "length of \"${currDir}${Title}\" is" \
+		"$(_thsSep ${length}) bytes"
+	else
+		echo "error"
+	fi
 	cat "${msgs}" > /dev/stderr
-	echo "Success"
 }
 
 set -o errexit -o nounset -o pipefail +o noglob +o noclobber
