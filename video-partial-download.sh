@@ -67,20 +67,20 @@ Main() {
 		line intervals i \
 		s e title files
 
+	mkdir "./tmp-${myId}"
 	Debug="${Debug:-"y"}"
+	vlcOptions=""
 	if [ -z "${Debug:-}" ]; then
 		vlcOptions="-I dummy"
-	else
+	elif [ "${Debug:-}" = "xtrace" ]; then
 		vlcOptions="-v"
-		if [ "${Debug:-}" = "xtrace" ]; then
-			set +x
-			export PS4='+\t ${LINENO}:${FUNCNAME:+"${FUNCNAME}:"} '
-			exec {BASH_XTRACEFD}>> "./tmp-${myId}-log.txt"
-			set -x
-		fi
+		set +x
+		export PS4='+\t ${LINENO}:${FUNCNAME:+"${FUNCNAME}:"} '
+		exec {BASH_XTRACEFD}>> "./tmp-${myId}/log.txt"
+		set -x
 	fi
 
-	echo "Messages" > "./tmp-${myId}-msgs.txt"
+	echo "Messages" > "./tmp-${myId}/msgs.txt"
 
 	Url="${1:-}"
 	Title="${2:-}"
@@ -109,7 +109,7 @@ Main() {
 		export DIALOGRC=""
 		RES="$(dialog --stdout --no-shadow --colors \
 		--begin 30 0 --title Messages \
-		--tailboxbg "./tmp-${myId}-msgs.txt" 14 172 \
+		--tailboxbg "./tmp-${myId}/msgs.txt" 14 172 \
 		--and-widget --begin 0 0 \
 --title "VLC download video parts" --colors \
 --form ' Enter Values, press Enter:' 28 172 20 \
@@ -123,6 +123,11 @@ Main() {
 		exit 1
 
 		Url="$(_line 1 "${RES}")"
+		[ -n "${Url}" ] || {
+			echo "URL must be specified"
+			continue
+		}
+
 		Title="$(_line 2 "${RES}")"
 		RES="$(printf '%s\n' "${RES}" | \
 			sed -re '/^[[:blank:]]*$/s//0/' | \
@@ -131,11 +136,29 @@ Main() {
 			printf '%s %s %s ' "${0}" "'${Url}'" "'${Title}'"
 			printf "'%s:%s:%s-%s:%s:%s' " ${RES}
 			echo
-		} >> "tmp-${myId}-cmd.sh"
+		} >> "./tmp-${myId}/cmd.sh"
 		echo 'Command'
 		printf '%s %s %s ' "${0}" "'${Url}'" "'${Title}'"
 		printf "'%s:%s:%s-%s:%s:%s' " ${RES}
 		echo
+
+		Info="$(ffmpeg -hide_banner -y -i "${Url}" 2>&1 | \
+			sed -n '/^Input #0/,/^At least one/ {/^[^A]/p}')" || :
+		if [ -n "${Info}" ]; then
+			duration="$(printf '%s\n' "${Info}" | \
+				sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{s//\1/;p;q}')"
+		else
+			duration=0
+			echo "this URL is invalid"
+		fi
+		echo "video duration is \"${duration}\""
+		if [ -s "${Url}" ]; then
+			size="$(stat --format %s "${Url}")"
+		else
+			#wget -nv --spider -T 7 --no-check-certificate 'file:///home
+			size=""
+		fi
+		echo "video size is \"${size}\" bytes"
 
 		if [ -z "${Title}" ]; then
 			Title="$(basename "${Url}")"
@@ -246,38 +269,43 @@ Main() {
 			echo "have not defined any interval"
 			err="y"
 		}
-	done >> "./tmp-${myId}-msgs.txt"
+	done >> "./tmp-${myId}/msgs.txt"
 
 	Title="${Title}-${myId}.mpg"
 
-	files="./tmp-${myId}-files.txt"
-	: > "${files}"
 	if [ $(echo "${intervals}" | wc -w) -eq 1 ]; then
 		vlc_get "${Url}" "${Title}" $((Is${intervals})) $((Ie${intervals})) || {
 			echo "error in vlc download"
 			exit 1
 		}
 	else
+		files="./tmp-${myId}/files.txt"
+		: > "${files}"
+		err=""
 		for i in ${intervals}; do
-			title="tmp-${myId}-${i}.mpg"
-			vlc_get "${Url}" "${title}" $((Is${i})) $((Ie${i})) || {
+			title="./tmp-${myId}/${i}.mpg"
+			if ! vlc_get "${Url}" "${title}" $((Is${i})) $((Ie${i})); then
 				echo "error in vlc download"
+				err="y"
+			fi
+			echo "file '$(basename "${title}")'" >> "${files}"
+		done
+		if [ -z "${err}" ]; then
+			echo "ffmpeg concat" $(cat "${files}")
+			( cd "./tmp-${myId}/"
+			ffmpeg -f concat -safe 0 -i "$(basename "${files}")" \
+			-c:v copy "../${Title}" ) || {
+				echo "error in video concatenation"
+				cat "./msgs.txt"
 				exit 1
 			}
-			echo "file '${title}'" >> "${files}"
-		done
-		echo "ffmpeg concat" $(cat "${files}")
-		ffmpeg -f concat -safe 0 -i "${files}" -c:v copy "${Title}" || {
-			echo "error in video concatenation"
-			cat "./tmp-${myId}-msgs.txt"
-			exit 1
-		}
+		fi
 	fi > /dev/stderr
-	cat "./tmp-${myId}-msgs.txt" > /dev/stderr
+	cat "./tmp-${myId}/msgs.txt" > /dev/stderr
 	echo "Success"
 }
 
-set -o errexit
+set -o errexit -o nounset -o pipefail +o noglob +o noclobber
 
 declare -ar ARGV=("${@}")
 readonly ARGC=${#}
