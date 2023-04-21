@@ -154,6 +154,8 @@ Main() {
 		[ ${rc} -ne 1 -a ${rc} -ne 255 ] || \
 			exit 0
 
+		: > "${msgs}"
+		echo "Messages"
 		Url="$(_line 1 "${RES}")"
 		Title="$(_line 2 "${RES}")"
 		RES="$(printf '%s\n' "${RES}" | \
