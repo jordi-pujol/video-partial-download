@@ -330,7 +330,7 @@ Main() {
 			Tl=$((Tl+length))
 		done
 
-		echo "Downloading ${Ts} seconds," \
+		echo "Downloading $(_thsSep ${Ts}) seconds," \
 			"$(test ${Tl} -eq 0 || \
 				echo "aprox. $(_thsSep ${Tl}) bytes")"
 
