@@ -179,14 +179,18 @@ Main() {
 		Info="$(LANGUAGE=C \
 			ffmpeg -hide_banner -y -i "${Url}" 2>&1 | \
 			sed -n '/^Input #0/,/^At least one/ {/^[^A]/p}')" || :
+		duration=""
 		if [ -n "${Info}" ]; then
 			duration="$(printf '%s\n' "${Info}" | \
 				sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{s//\1/;p;q}')"
-		else
-			duration="0:0:0"
-			echo "this URL is invalid"
 		fi
-		durationSeconds="$(_timeSeconds "${duration}")"
+		if [ -z "${duration}" ]; then
+			duration="0:0:0"
+			durationSeconds=0
+			echo "this URL is invalid"
+		else
+			durationSeconds="$(_timeSeconds "${duration}")"
+		fi
 		echo "video duration is \"${duration}\"," \
 			"${durationSeconds} seconds"
 		if [ -s "${Url}" ]; then
