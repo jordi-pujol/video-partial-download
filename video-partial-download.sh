@@ -68,7 +68,7 @@ vlc_get() {
 	length=$(_fileSize "${title}")
 	echo "length of \"${title}\" is $(_thsSep ${length}) bytes"
 	[ ${length} -ge $((lengthAprox*90/100)) ] || \
-		echo "Warn: download file \"${title}\" is really short"
+		echo "Warn: download file \"${title}\" is too short"
 }
 
 Main() {
@@ -300,7 +300,7 @@ Main() {
 			seconds=0
 			length=0
 			[ ${se} -ne ${durationSeconds} ] || \
-				se=$((durationSeconds+1))
+				let "se++,1"
 			if [ ${ss} -lt ${se} ]; then
 				intervals="${intervals}${i} "
 				let "Is${i}=ss,1"
