@@ -135,8 +135,8 @@ Main() {
 	rc=1
 	while [ -n "${err}" -o ${rc} -ne 0 ]; do
 		rc=0
-		export DIALOGRC=""
-		RES="$(dialog --stdout --no-shadow --colors \
+		RES="$(export DIALOGRC=""
+		dialog --stdout --no-shadow --colors \
 		--begin 29 0 --title Messages \
 		--tailboxbg "${msgs}" 14 172 \
 		--and-widget --begin 0 0 \
@@ -165,7 +165,7 @@ Main() {
 			printf '%s %s %s ' "${0}" "'${Url}'" "'${Title}'"
 			printf "'%s:%s:%s-%s:%s:%s' " ${RES}
 			echo
-		} >> "${tmpDir}cmd.sh"
+		} > "${tmpDir}cmd.sh"
 		echo 'Command'
 		printf '%s %s %s ' "${0}" "'${Url}'" "'${Title}'"
 		printf "'%s:%s:%s-%s:%s:%s' " ${RES}
