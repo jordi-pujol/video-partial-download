@@ -177,7 +177,7 @@ Main() {
 		}
 
 		Info="$(LANGUAGE=C \
-			ffmpeg -hide_banner -y -i "${Url}" 2>&1 | \
+			ffmpeg -nostdin -hide_banner -y -i "${Url}" 2>&1 | \
 			sed -n '/^Input #0/,/^At least one/ {/^[^A]/p}')" || :
 		duration=""
 		if [ -n "${Info}" ]; then
@@ -363,7 +363,7 @@ Main() {
 		if [ -z "${err}" ]; then
 			echo "ffmpeg concat" $(cat "${files}")
 			if ! ( cd "${tmpDir}"
-			ffmpeg \
+			ffmpeg -nostdin -hide_banner -y \
 			-f concat -safe 0 -i "$(basename "${files}")" \
 			-c:v copy "${currDir}${Title}" \
 			> "${tmpDir}${Title}.txt" 2>&1
