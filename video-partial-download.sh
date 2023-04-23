@@ -8,7 +8,9 @@ _unquote() {
 _timeSeconds() {
 	local time="${1}"
 	time="$(printf '%s\n' "${time}" | \
-		sed -nre "s/^([[:digit:]]+):([[:digit:]]+):([[:digit:]]+)$/((\1*60)+\2)*60+\3/p")"
+		sed -nre '/^[0]+([[:digit:]]+)/s//\1/' \
+		-e '/([^[:digit:]])0([[:digit:]])/s//\1\2/g' \
+		-e 's/^([[:digit:]]+):([[:digit:]]+):([[:digit:]]+)$/((\1*60)+\2)*60+\3/p')"
 	echo $((${time:-0}))
 }
 
@@ -22,12 +24,12 @@ _line() {
 	shift
 	printf "%s\n" "${@}" | \
 		awk -v line="${line}" \
-		'NR == line {print; rc=-1; exit}
-		END{exit rc+1}'
+		'NR == line {print; rc=1; exit}
+		END{if (! rc) print 0; exit}'
 }
 
 _thsSep() {
-	printf "%'.3d\n" "${@}"
+	printf "%'d\n" "${@}"
 }
 
 _natural() {
@@ -48,7 +50,7 @@ vlc_get() {
 		lengthAprox="${5}" \
 		length
 
-	echo "vlc download \"${url}\" from ${sTime} to ${eTime}," \
+	echo "vlc download \"${url}\" from $(_thsSep ${sTime}) to $(_thsSep ${eTime})," \
 		"aprox.length $(_thsSep ${lengthAprox}) bytes"
 
 	vlc ${vlcOptions} \
@@ -71,8 +73,199 @@ vlc_get() {
 		echo "Warn: download file \"${title}\" is too short"
 }
 
+VerifyData() {
+	: > "${msgs}"
+	echo "Messages"
+	err=""
+	Url="$(_line 1 "${RES}")"
+	[ -n "${Url}" ] || {
+		echo "URL must be specified"
+		return 0
+	}
+	Title="$(_line 2 "${RES}")"
+	RES="$(printf '%s\n' "${RES}" | \
+		sed -re '/^[[:blank:]]*$/s//0/' | \
+		tail -n +3)"
+	p=$(wc -l <<< "${RES}")
+	if [ ${p} -gt 0 -a $((p%6)) -eq 0 ]; then
+		{ echo '#!/bin/sh'
+			printf '%s %s %s ' "${0}" "'${Url}'" "'${Title}'"
+			printf "'%s:%s:%s-%s:%s:%s' " ${RES}
+			echo
+		} > "${tmpDir}cmd.sh"
+		echo 'Command'
+		printf '%s %s %s ' "${0}" "'${Url}'" "'${Title}'"
+		printf "'%s:%s:%s-%s:%s:%s' " ${RES}
+		echo
+	fi
+
+	Info="$(LANGUAGE=C \
+		ffmpeg -nostdin -hide_banner -y -i "${Url}" 2>&1 | \
+		sed -n '/^Input #0/,/^At least one/ {/^[^A]/p}')" || :
+	duration=""
+	if [ -n "${Info}" ]; then
+		duration="$(printf '%s\n' "${Info}" | \
+			sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{s//\1/;p;q}')"
+	fi
+	if [ -z "${duration}" ]; then
+		duration="0:0:0"
+		durationSeconds=0
+		echo "this URL is invalid"
+	else
+		durationSeconds="$(_timeSeconds "${duration}")"
+	fi
+	echo "video duration is \"${duration}\"," \
+		"$(_thsSep ${durationSeconds}) seconds"
+	if [ -s "${Url}" ]; then
+		size="$(_fileSize "${Url}")"
+	else
+		size="$(LANGUAGE=C \
+			wget --verbose --spider -T 7 --no-check-certificate "${Url}" 2>&1 | \
+			sed -nre '/^Length: ([[:digit:]]+).*/{s//\1/;p;q}')" || :
+	fi
+	[ ${size:=0} -eq 0 ] && \
+		echo "video size is invalid" || \
+		echo "video size is $(_thsSep ${size}) bytes"
+
+	if [ -z "${Title}" ]; then
+		Title="$(basename "${Url}")"
+		Title="${Title%.*}"
+	fi
+
+# mpeg1 	MPEG-1 multiplexing - recommended for portability. Only works with mp1v video and mpga audio, but works on all known players
+# ts 	MPEG Transport Stream, primarily used for streaming MPEG. Also used in DVDs
+# ps 	MPEG Program Stream, primarily used for saving MPEG data to disk.
+# mp4 	MPEG-4 mux format, used only for MPEG-4 video and MPEG audio.
+# avi 	AVI
+# asf 	ASF
+# dummy 	dummy output, can be used in creation of MP3 files.
+# ogg 	Xiph.org's ogg container format. Can contain audio, video, and metadata
+
+	ext="${Url##*.}"
+	case "${ext}" in
+		mp4) mux="mp4" ;;
+		*) mux="ts" ;;
+	esac
+
+	line=0
+	intervals=""
+	Ts=0
+	Tl=0
+	err=""
+	for i in $(seq 1 4); do
+		ss=0
+		se=0
+		si="Interval ${i} "
+		let line++,1
+		if s="$(_natural)"; then
+			ss=${s}
+			let "S${line}=s,1"
+			[ $((S${line})) -gt 0 ] || \
+				eval "S${line}="
+		else
+			eval S${line}='${s}'
+			echo "error in interval ${i}, start hour"
+			err="y"
+		fi
+		si="${si}$((S${line}))h:"
+		let line++,1
+		if s="$(_natural)" && [ ${s} -lt 60 ]; then
+			ss=$(((ss*60)+s))
+			let "S${line}=s,1"
+			[ $((S${line})) -gt 0 ] || \
+				eval "S${line}="
+		else
+			eval S${line}='${s}'
+			echo "error in interval ${i}, start minute"
+			err="y"
+		fi
+		si="${si}$((S${line}))m:"
+		let line++,1
+		if s="$(_natural)" && [ ${s} -lt 60 ]; then
+			ss=$(((ss*60)+s))
+			let "S${line}=s,1"
+		else
+			eval S${line}='${s}'
+			echo "error in interval ${i}, start second"
+			err="y"
+		fi
+		si="${si}$((S${line}))s-"
+		let line++,1
+		if s="$(_natural)"; then
+			se=${s}
+			let "S${line}=s,1"
+			[ $((S${line})) -gt 0 ] || \
+				eval "S${line}="
+		else
+			eval S${line}='${s}'
+			echo "error in interval ${i}, end hour"
+			err="y"
+		fi
+		si="${si}$((S${line}))h:"
+		let line++,1
+		if s="$(_natural)" && [ ${s} -lt 60 ]; then
+			se=$(((se*60)+s))
+			let "S${line}=s,1"
+			[ $((S${line})) -gt 0 ] || \
+				eval "S${line}="
+		else
+			eval S${line}='${s}'
+			echo "error in interval ${i}, end minute"
+			err="y"
+		fi
+		si="${si}$((S${line}))m:"
+		let line++,1
+		if s="$(_natural)" && [ ${s} -lt 60 ]; then
+			se=$(((se*60)+s))
+			let "S${line}=s,1"
+		else
+			eval S${line}='${s}'
+			echo "error in interval ${i}, end second"
+			err="y"
+		fi
+		si="${si}$((S${line}))s"
+		seconds=0
+		length=0
+		[ ${se} -ne ${durationSeconds} ] || \
+			let "se++,1"
+		if [ ${ss} -lt ${se} ]; then
+			intervals="${intervals}${i} "
+			let "Is${i}=ss,1"
+			let "Ie${i}=se,1"
+			seconds=$((se-ss))
+			[ ${durationSeconds} -eq 0 ] || \
+				length=$((seconds*size/durationSeconds))
+			let "Il${i}=length,1"
+		elif [ ${ss} -ne 0 -o ${se} -ne 0 ]; then
+			si="${si} invalid"
+			err="y"
+		fi
+		if [ ${se} -gt $((durationSeconds+1)) ]; then
+			si="${si} out of time limits"
+			err="y"
+		fi
+		echo "${si} from ${ss} to ${se}," \
+			"$(test ${length} -eq 0 || \
+				echo "$(_thsSep ${seconds}) seconds,")" \
+			"$(test ${length} -eq 0 || \
+				echo "aprox. $(_thsSep ${length}) bytes")"
+		Ts=$((Ts+seconds))
+		Tl=$((Tl+length))
+	done
+
+	echo "Downloading $(_thsSep ${Ts}) seconds," \
+		"$(test ${Tl} -eq 0 || \
+			echo "aprox. $(_thsSep ${Tl}) bytes")"
+
+	[ -n "${intervals}" ] || {
+		echo "have not defined any interval"
+		err="y"
+	}
+}
+
 Main() {
-	readonly myId="$(date +%s)" \
+	readonly LF=$'\n' \
+		myId="$(date +%s)" \
 		currDir="$(readlink -f .)/"
 	readonly tmpDir="${currDir}tmp-${myId}/"
 	readonly msgs="${tmpDir}msgs.txt"
@@ -92,7 +285,7 @@ Main() {
 		Eh Em Es \
 		line intervals i j k \
 		arg s e title files \
-		rc
+		err rc
 
 	mkdir "${tmpDir}"
 	vlcOptions=""
@@ -107,10 +300,8 @@ Main() {
 	fi
 
 	exec > "${msgs}"
-	echo "Messages"
 
-	Url="${1:-}"
-	Title="${2:-}"
+	RES="${1:-}${LF}${2:-}${LF}"
 	line=0
 	for i in $(seq 3 ${#}); do
 		arg="$(eval echo "\$${i}")"
@@ -120,16 +311,16 @@ Main() {
 				let line++,1
 				v="$(printf '%s\n' "${s}" | cut -f ${k} -d ':')"
 				if printf '%s\n' "${v}" | grep -qsxEe "[[:digit:]]+"; then
-					let "S${line}=v,1"
-					[ ${k} -eq 3 ] || \
-					[ $((S${line})) -gt 0 ] || \
-						eval "S${line}="
+					let "v=v,1"
 				else
-					eval "S${line}=v"
+					v=0
 				fi
+				RES="${v}${LF}"
 			done
 		done
 	done
+
+	VerifyData
 
 	err="y"
 	rc=1
@@ -154,190 +345,7 @@ Main() {
 		[ ${rc} -ne 1 -a ${rc} -ne 255 ] || \
 			exit 0
 
-		: > "${msgs}"
-		echo "Messages"
-		Url="$(_line 1 "${RES}")"
-		Title="$(_line 2 "${RES}")"
-		RES="$(printf '%s\n' "${RES}" | \
-			sed -re '/^[[:blank:]]*$/s//0/' | \
-			tail -n +3)"
-		{ echo '#!/bin/sh'
-			printf '%s %s %s ' "${0}" "'${Url}'" "'${Title}'"
-			printf "'%s:%s:%s-%s:%s:%s' " ${RES}
-			echo
-		} > "${tmpDir}cmd.sh"
-		echo 'Command'
-		printf '%s %s %s ' "${0}" "'${Url}'" "'${Title}'"
-		printf "'%s:%s:%s-%s:%s:%s' " ${RES}
-		echo
-
-		[ -n "${Url}" ] || {
-			echo "URL must be specified"
-			continue
-		}
-
-		Info="$(LANGUAGE=C \
-			ffmpeg -nostdin -hide_banner -y -i "${Url}" 2>&1 | \
-			sed -n '/^Input #0/,/^At least one/ {/^[^A]/p}')" || :
-		duration=""
-		if [ -n "${Info}" ]; then
-			duration="$(printf '%s\n' "${Info}" | \
-				sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{s//\1/;p;q}')"
-		fi
-		if [ -z "${duration}" ]; then
-			duration="0:0:0"
-			durationSeconds=0
-			echo "this URL is invalid"
-		else
-			durationSeconds="$(_timeSeconds "${duration}")"
-		fi
-		echo "video duration is \"${duration}\"," \
-			"${durationSeconds} seconds"
-		if [ -s "${Url}" ]; then
-			size="$(_fileSize "${Url}")"
-		else
-			size="$(LANGUAGE=C \
-				wget --verbose --spider -T 7 --no-check-certificate "${Url}" 2>&1 | \
-				sed -nre '/^Length: ([[:digit:]]+).*/{s//\1/;p;q}')" || :
-		fi
-		[ ${size:=0} -eq 0 ] && \
-			echo "video size is invalid" || \
-			echo "video size is $(_thsSep ${size}) bytes"
-
-		if [ -z "${Title}" ]; then
-			Title="$(basename "${Url}")"
-			Title="${Title%.*}"
-		fi
-
-# mpeg1 	MPEG-1 multiplexing - recommended for portability. Only works with mp1v video and mpga audio, but works on all known players
-# ts 	MPEG Transport Stream, primarily used for streaming MPEG. Also used in DVDs
-# ps 	MPEG Program Stream, primarily used for saving MPEG data to disk.
-# mp4 	MPEG-4 mux format, used only for MPEG-4 video and MPEG audio.
-# avi 	AVI
-# asf 	ASF
-# dummy 	dummy output, can be used in creation of MP3 files.
-# ogg 	Xiph.org's ogg container format. Can contain audio, video, and metadata
-
-		ext="${Url##*.}"
-		case "${ext}" in
-			mp4) mux="mp4" ;;
-			*) mux="ts" ;;
-		esac
-
-		line=0
-		intervals=""
-		Ts=0
-		Tl=0
-		err=""
-		for i in $(seq 1 4); do
-			ss=0
-			se=0
-			si="Interval ${i} "
-			let line++,1
-			if s="$(_natural)"; then
-				ss=${s}
-				let "S${line}=s,1"
-				[ $((S${line})) -gt 0 ] || \
-					eval "S${line}="
-			else
-				eval S${line}='${s}'
-				echo "error in interval ${i}, start hour"
-				err="y"
-			fi
-			si="${si}$((S${line}))h:"
-			let line++,1
-			if s="$(_natural)" && [ ${s} -lt 60 ]; then
-				ss=$(((ss*60)+s))
-				let "S${line}=s,1"
-				[ $((S${line})) -gt 0 ] || \
-					eval "S${line}="
-			else
-				eval S${line}='${s}'
-				echo "error in interval ${i}, start minute"
-				err="y"
-			fi
-			si="${si}$((S${line}))m:"
-			let line++,1
-			if s="$(_natural)" && [ ${s} -lt 60 ]; then
-				ss=$(((ss*60)+s))
-				let "S${line}=s,1"
-			else
-				eval S${line}='${s}'
-				echo "error in interval ${i}, start second"
-				err="y"
-			fi
-			si="${si}$((S${line}))s-"
-			let line++,1
-			if s="$(_natural)"; then
-				se=${s}
-				let "S${line}=s,1"
-				[ $((S${line})) -gt 0 ] || \
-					eval "S${line}="
-			else
-				eval S${line}='${s}'
-				echo "error in interval ${i}, end hour"
-				err="y"
-			fi
-			si="${si}$((S${line}))h:"
-			let line++,1
-			if s="$(_natural)" && [ ${s} -lt 60 ]; then
-				se=$(((se*60)+s))
-				let "S${line}=s,1"
-				[ $((S${line})) -gt 0 ] || \
-					eval "S${line}="
-			else
-				eval S${line}='${s}'
-				echo "error in interval ${i}, end minute"
-				err="y"
-			fi
-			si="${si}$((S${line}))m:"
-			let line++,1
-			if s="$(_natural)" && [ ${s} -lt 60 ]; then
-				se=$(((se*60)+s))
-				let "S${line}=s,1"
-			else
-				eval S${line}='${s}'
-				echo "error in interval ${i}, end second"
-				err="y"
-			fi
-			si="${si}$((S${line}))s"
-			seconds=0
-			length=0
-			[ ${se} -ne ${durationSeconds} ] || \
-				let "se++,1"
-			if [ ${ss} -lt ${se} ]; then
-				intervals="${intervals}${i} "
-				let "Is${i}=ss,1"
-				let "Ie${i}=se,1"
-				seconds=$((se-ss))
-				[ ${durationSeconds} -eq 0 ] || \
-					length=$((seconds*size/durationSeconds))
-				let "Il${i}=length,1"
-			elif [ ${ss} -ne 0 -o ${se} -ne 0 ]; then
-				si="${si} invalid"
-				err="y"
-			fi
-			if [ ${se} -gt $((durationSeconds+1)) ]; then
-				si="${si} out of time limits"
-				err="y"
-			fi
-			echo "${si} from ${ss} to ${se}," \
-				"$(test ${length} -eq 0 || \
-					echo "${seconds} seconds,")" \
-				"$(test ${length} -eq 0 || \
-					echo "aprox. $(_thsSep ${length}) bytes")"
-			Ts=$((Ts+seconds))
-			Tl=$((Tl+length))
-		done
-
-		echo "Downloading $(_thsSep ${Ts}) seconds," \
-			"$(test ${Tl} -eq 0 || \
-				echo "aprox. $(_thsSep ${Tl}) bytes")"
-
-		[ -n "${intervals}" ] || {
-			echo "have not defined any interval"
-			err="y"
-		}
+		VerifyData
 	done
 
 	Title="${Title}-${myId}.mpg"
