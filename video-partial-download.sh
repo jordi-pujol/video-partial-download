@@ -1,16 +1,16 @@
 #!/bin/bash
 
 _unquote() {
-	printf '%s\n' "${@}" | \
-		sed -re "s/^([\"]([^\"]*)[\"]|[']([^']*)['])$/\2\3/"
+	sed -re "s/^([\"]([^\"]*)[\"]|[']([^']*)['])$/\2\3/" \
+		<<< "${@}"
 }
 
 _timeSeconds() {
 	local time="${1}"
-	time="$(printf '%s\n' "${time}" | \
-		sed -nre '/^[0]+([[:digit:]]+)/s//\1/' \
+	time="$(sed -nre '/^[0]+([[:digit:]]+)/s//\1/' \
 		-e '/([^[:digit:]])0([[:digit:]])/s//\1\2/g' \
-		-e 's/^([[:digit:]]+):([[:digit:]]+):([[:digit:]]+)$/((\1*60)+\2)*60+\3/p')"
+		-e 's/^([[:digit:]]+):([[:digit:]]+):([[:digit:]]+)$/((\1*60)+\2)*60+\3/p' \
+		<<< "${time}")"
 	echo $((${time:-0}))
 }
 
@@ -22,10 +22,10 @@ _fileSize() {
 _line() {
 	local line=${1}
 	shift
-	printf "%s\n" "${@}" | \
-		awk -v line="${line}" \
+	awk -v line="${line}" \
 		'NR == line {print; rc=1; exit}
-		END{if (! rc) print 0; exit}'
+		END{if (! rc) print 0; exit}' \
+		<<< "${@}"
 }
 
 _thsSep() {
@@ -111,23 +111,36 @@ VerifyData() {
 	done
 	echo
 
-	Info="$(LANGUAGE=C \
-		ffmpeg -nostdin -hide_banner -y -i "${Url}" 2>&1 | \
-		sed -n '/^Input #0/,/^At least one/ {/^[^A]/p}')" || :
 	duration=""
-	if [ -n "${Info}" ]; then
-		duration="$(printf '%s\n' "${Info}" | \
-			sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{s//\1/;p;q}')"
-	fi
-	if [ -z "${duration}" ]; then
-		duration="0:0:0"
-		durationSeconds=0
-		echo "this URL is invalid"
-	else
-		durationSeconds="$(_timeSeconds "${duration}")"
-	fi
-	echo "video duration is \"${duration}\"," \
-		"$(_thsSep ${durationSeconds}) seconds"
+	geturl=""
+	while [ -z "${duration}" ]; do
+		Info="$(LANGUAGE=C \
+			ffmpeg -nostdin -hide_banner -y -i "${Url}" 2>&1 | \
+			sed -n '/^Input #0/,/^At least one/ {/^[^A]/p}')" || :
+		if [ -n "${Info}" ]; then
+			duration="$(printf '%s\n' "${Info}" | \
+				sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{s//\1/;p;q}')"
+		fi
+		if [ -z "${duration}" -a -z "${geturl}" ]; then
+			echo "Using yt-dlp to get URL"
+			Info="$(yt-dlp "${Url}" --get-url)" && {
+				Url="${Info}"
+				echo "Setting URL to \"${Url}\""
+				geturl="y"
+				continue
+			} || \
+				echo "yt-dlp is unable to find a valid video URL"
+		fi
+		if [ -z "${duration}" ]; then
+			duration="0:0:0"
+			durationSeconds=0
+			echo "this URL is invalid"
+		else
+			durationSeconds="$(_timeSeconds "${duration}")"
+		fi
+		echo "video duration is \"${duration}\"," \
+			"$(_thsSep ${durationSeconds}) seconds"
+	done
 	if [ -s "${Url}" ]; then
 		size="$(_fileSize "${Url}")"
 	else
