@@ -74,6 +74,7 @@ VlcGet() {
 }
 
 VerifyData() {
+	local p r s
 	: > "${msgs}"
 	echo "Messages"
 	err=""
@@ -86,18 +87,29 @@ VerifyData() {
 	RES="$(printf '%s\n' "${RES}" | \
 		sed -re '/^[[:blank:]]*$/s//0/' | \
 		tail -n +3)"
-	p=$(wc -l <<< "${RES}")
-	if [ ${p} -gt 0 -a $((p%6)) -eq 0 ]; then
-		{ echo '#!/bin/sh'
-			printf '%s %s %s ' "${0}" "'${Url}'" "'${Title}'"
-			printf "'%s:%s:%s-%s:%s:%s' " ${RES}
-			echo
-		} > "${tmpDir}cmd.sh"
-		echo 'Command'
+	{ echo '#!/bin/sh'
 		printf '%s %s %s ' "${0}" "'${Url}'" "'${Title}'"
-		printf "'%s:%s:%s-%s:%s:%s' " ${RES}
+		r="${RES}"
+		while p=$(wc -l <<< "${r}");
+		[ ${p} -gt 0 -a $((p%6)) -eq 0 ]; do
+			s="$(printf '%s\n' ${r} | head -n 6)"
+			! grep -qsxvF '0' <<< "${s}" || \
+				printf "'%s:%s:%s-%s:%s:%s' " ${s}
+			r="$(printf '%s\n' ${r} | tail -n +7)"
+		done
 		echo
-	fi
+	} > "${tmpDir}cmd.sh"
+	echo 'Command'
+	printf '%s %s %s ' "${0}" "'${Url}'" "'${Title}'"
+	r="${RES}"
+	while p=$(wc -l <<< "${r}");
+	[ ${p} -gt 0 -a $((p%6)) -eq 0 ]; do
+		s="$(printf '%s\n' ${r} | head -n 6)"
+		! grep -qsxvF '0' <<< "${s}" || \
+			printf "'%s:%s:%s-%s:%s:%s' " ${s}
+		r="$(printf '%s\n' ${r} | tail -n +7)"
+	done
+	echo
 
 	Info="$(LANGUAGE=C \
 		ffmpeg -nostdin -hide_banner -y -i "${Url}" 2>&1 | \
@@ -241,7 +253,7 @@ VerifyData() {
 			err="y"
 		fi
 		if [ ${se} -gt $((durationSeconds+1)) ]; then
-			si="${si} out of time limits"
+			si="${si} out of limits"
 			err="y"
 		fi
 		echo "${si} from ${ss} to ${se}," \
