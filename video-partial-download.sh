@@ -42,7 +42,7 @@ _natural() {
 	printf '%d\n' "${v}"
 }
 
-vlc_get() {
+VlcGet() {
 	local url="${1}" \
 		title="${2}" \
 		sTime="${3}" \
@@ -352,7 +352,7 @@ Main() {
 	exec > >(tee /dev/stderr)
 
 	if [ $(echo "${intervals}" | wc -w) -eq 1 ]; then
-		vlc_get "${Url}" "${Title}" $((Is${intervals})) \
+		VlcGet "${Url}" "${Title}" $((Is${intervals})) \
 		$((Ie${intervals})) $((Il${intervals})) || \
 			echo "error in vlc download"
 	else
@@ -361,7 +361,7 @@ Main() {
 		err=""
 		for i in ${intervals}; do
 			title="${tmpDir}${i}.mpg"
-			if ! vlc_get "${Url}" "${title}" $((Is${i})) \
+			if ! VlcGet "${Url}" "${title}" $((Is${i})) \
 			$((Ie${i})) $((Il${i})); then
 				echo "error in vlc download"
 				err="y"
