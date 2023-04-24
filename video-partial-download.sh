@@ -135,6 +135,7 @@ VerifyData() {
 		err="y"
 	elif [ "${VideoUrl}" != "${Url}" ]; then
 		echo "Real video URL is \"${VideoUrl}\""
+		echo "# Real video URL is \"${VideoUrl}\"" >> "${tmpDir}cmd.sh"
 	fi
 	durationSeconds="$(_timeSeconds "${duration}")"
 	echo "video duration is \"${duration}\"," \
@@ -414,15 +415,15 @@ Main() {
 			); then
 				echo "error in video concatenation"
 			fi
+			if [ -s "${currDir}${Title}" ]; then
+				length=$(_fileSize "${currDir}${Title}")
+				echo "length of \"${currDir}${Title}\" is" \
+					"$(_thsSep ${length}) bytes"
+			fi
 		fi
 	fi
-	if [ -s "${currDir}${Title}" ]; then
-		length=$(_fileSize "${currDir}${Title}")
-		echo "length of \"${currDir}${Title}\" is" \
-			"$(_thsSep ${length}) bytes"
-	else
+	[ -s "${currDir}${Title}" ] || \
 		echo "error"
-	fi
 	cat "${msgs}" > /dev/stderr
 }
 
