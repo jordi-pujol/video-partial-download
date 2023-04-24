@@ -74,7 +74,8 @@ VlcGet() {
 }
 
 VerifyData() {
-	local p r s
+	local p r s \
+		duration durationSeconds getVideoUrl
 	: > "${msgs}"
 	echo "Messages"
 	err=""
@@ -113,39 +114,41 @@ VerifyData() {
 
 	VideoUrl=""
 	duration=""
-	geturl=""
-	while [ -z "${duration}" ]; do
-		Info="$(LANGUAGE=C \
-			ffmpeg -nostdin -hide_banner -y -i "${VideoUrl:-"${Url}"}" 2>&1 | \
-			sed -n '/^Input #0/,/^At least one/ {/^[^A]/p}')" || :
-		if [ -n "${Info}" ]; then
-			duration="$(printf '%s\n' "${Info}" | \
-				sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{s//\1/;p;q}')"
+	getVideoUrl=""
+	while [ -z "${duration}" -o -z "${getVideoUrl}" ]; do
+		if duration="$(LANGUAGE=C \
+		ffmpeg -nostdin -hide_banner -y -i "${VideoUrl:-"${Url}"}" 2>&1 | \
+		sed -n '/^Input #0/,/^At least one/ {/^[^A]/p}' | \
+		sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{s//\1/;p;q}')" && \
+		[ -n "${duration}" ]; then
 			VideoUrl="${VideoUrl:-"${Url}"}"
-		fi
-		if [ -z "${VideoUrl}" -a -z "${geturl}" ] && \
-		VideoUrl="$(yt-dlp "${Url}" --get-url 2> /dev/null)"; then
-			geturl="y"
+			getVideoUrl="y"
+		elif [ -z "${getVideoUrl}" ]; then
+			VideoUrl="$(yt-dlp "${Url}" --get-url 2> /dev/null)" || :
+			getVideoUrl="y"
 			continue
 		fi
-		if [ -z "${VideoUrl}" ]; then
-			duration="0:0:0"
-			echo "this URL is invalid"
-			err="y"
-		elif [ "${VideoUrl}" != "${Url}" ]; then
-			echo "Real video URL is \"${VideoUrl}\""
-		fi
-		durationSeconds="$(_timeSeconds "${duration}")"
-		echo "video duration is \"${duration}\"," \
-			"$(_thsSep ${durationSeconds}) seconds"
 	done
-	if [ -s "${VideoUrl:-"${Url}"}" ]; then
-		size="$(_fileSize "${VideoUrl:-"${Url}"}")"
-	else
-		size="$(LANGUAGE=C \
-			wget --verbose --spider -T 7 \
-			--no-check-certificate "${VideoUrl:-"${Url}"}" 2>&1 | \
-			sed -nre '/^Length: ([[:digit:]]+).*/{s//\1/;p;q}')" || :
+	if [ -z "${VideoUrl}" ]; then
+		duration="0:0:0"
+		echo "this URL is invalid"
+		err="y"
+	elif [ "${VideoUrl}" != "${Url}" ]; then
+		echo "Real video URL is \"${VideoUrl}\""
+	fi
+	durationSeconds="$(_timeSeconds "${duration}")"
+	echo "video duration is \"${duration}\"," \
+		"$(_thsSep ${durationSeconds}) seconds"
+	size=""
+	if [ -n "${VideoUrl}" ]; then
+		if [ -s "${VideoUrl}" ]; then
+			size="$(_fileSize "${VideoUrl:-"${Url}"}")"
+		else
+			size="$(LANGUAGE=C \
+				wget --verbose --spider -T 7 \
+				--no-check-certificate "${VideoUrl:-"${Url}"}" 2>&1 | \
+				sed -nre '/^Length: ([[:digit:]]+).*/{s//\1/;p;q}')" || :
+		fi
 	fi
 	[ ${size:=0} -eq 0 ] && \
 		echo "video size is invalid" || \
@@ -155,8 +158,8 @@ VerifyData() {
 		if Info="$(yt-dlp "${Url}" --get-title 2> /dev/null)"; then
 			Title="${Info}"
 			echo "Setting title to \"${Title}\""
-		elif Info="$(yt-dlp "${VideoUrl:-"${Url}"}" --get-title 2> /dev/null)"; then
-			Title="${Info}"
+		elif [ -n "${VideoUrl}" ] && \
+		Title="$(yt-dlp "${VideoUrl}" --get-title 2> /dev/null)"; then
 			echo "Setting title to \"${Title}\""
 		else
 			Title="$(basename "${Url}")"
