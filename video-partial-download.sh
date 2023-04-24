@@ -142,11 +142,11 @@ VerifyData() {
 	size=""
 	if [ -n "${VideoUrl}" ]; then
 		if [ -s "${VideoUrl}" ]; then
-			size="$(_fileSize "${VideoUrl:-"${Url}"}")"
+			size="$(_fileSize "${VideoUrl}")"
 		else
 			size="$(LANGUAGE=C \
 				wget --verbose --spider -T 7 \
-				--no-check-certificate "${VideoUrl:-"${Url}"}" 2>&1 | \
+				--no-check-certificate "${VideoUrl}" 2>&1 | \
 				sed -nre '/^Length: ([[:digit:]]+).*/{s//\1/;p;q}')" || :
 		fi
 	fi
