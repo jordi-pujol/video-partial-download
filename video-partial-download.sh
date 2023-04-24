@@ -111,41 +111,40 @@ VerifyData() {
 	done
 	echo
 
+	VideoUrl=""
 	duration=""
 	geturl=""
 	while [ -z "${duration}" ]; do
 		Info="$(LANGUAGE=C \
-			ffmpeg -nostdin -hide_banner -y -i "${Url}" 2>&1 | \
+			ffmpeg -nostdin -hide_banner -y -i "${VideoUrl:-"${Url}"}" 2>&1 | \
 			sed -n '/^Input #0/,/^At least one/ {/^[^A]/p}')" || :
 		if [ -n "${Info}" ]; then
 			duration="$(printf '%s\n' "${Info}" | \
 				sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{s//\1/;p;q}')"
+			VideoUrl="${VideoUrl:-"${Url}"}"
 		fi
-		if [ -z "${duration}" -a -z "${geturl}" ]; then
-			echo "Using yt-dlp to get URL"
-			Info="$(yt-dlp "${Url}" --get-url)" && {
-				Url="${Info}"
-				echo "Setting URL to \"${Url}\""
-				geturl="y"
-				continue
-			} || \
-				echo "yt-dlp is unable to find a valid video URL"
+		if [ -z "${VideoUrl}" -a -z "${geturl}" ] && \
+		VideoUrl="$(yt-dlp "${Url}" --get-url 2> /dev/null)"; then
+			geturl="y"
+			continue
 		fi
-		if [ -z "${duration}" ]; then
+		if [ -z "${VideoUrl}" ]; then
 			duration="0:0:0"
-			durationSeconds=0
 			echo "this URL is invalid"
-		else
-			durationSeconds="$(_timeSeconds "${duration}")"
+			err="y"
+		elif [ "${VideoUrl}" != "${Url}" ]; then
+			echo "Real video URL is \"${VideoUrl}\""
 		fi
+		durationSeconds="$(_timeSeconds "${duration}")"
 		echo "video duration is \"${duration}\"," \
 			"$(_thsSep ${durationSeconds}) seconds"
 	done
-	if [ -s "${Url}" ]; then
-		size="$(_fileSize "${Url}")"
+	if [ -s "${VideoUrl:-"${Url}"}" ]; then
+		size="$(_fileSize "${VideoUrl:-"${Url}"}")"
 	else
 		size="$(LANGUAGE=C \
-			wget --verbose --spider -T 7 --no-check-certificate "${Url}" 2>&1 | \
+			wget --verbose --spider -T 7 \
+			--no-check-certificate "${VideoUrl:-"${Url}"}" 2>&1 | \
 			sed -nre '/^Length: ([[:digit:]]+).*/{s//\1/;p;q}')" || :
 	fi
 	[ ${size:=0} -eq 0 ] && \
@@ -153,8 +152,17 @@ VerifyData() {
 		echo "video size is $(_thsSep ${size}) bytes"
 
 	if [ -z "${Title}" ]; then
-		Title="$(basename "${Url}")"
-		Title="${Title%.*}"
+		if Info="$(yt-dlp "${Url}" --get-title 2> /dev/null)"; then
+			Title="${Info}"
+			echo "Setting title to \"${Title}\""
+		elif Info="$(yt-dlp "${VideoUrl:-"${Url}"}" --get-title 2> /dev/null)"; then
+			Title="${Info}"
+			echo "Setting title to \"${Title}\""
+		else
+			Title="$(basename "${Url}")"
+			Title="${Title%.*}"
+			echo "Setting title to \"${Title}\""
+		fi
 	fi
 
 # mpeg1 	MPEG-1 multiplexing - recommended for portability. Only works with mp1v video and mpga audio, but works on all known players
@@ -295,7 +303,7 @@ Main() {
 	readonly tmpDir="${currDir}tmp-${myId}/"
 	readonly msgs="${tmpDir}msgs.txt"
 
-	local Url="" Title="" \
+	local Url="" Title="" VideoUrl \
 		ext mux \
 		Sh Sm Ss \
 		S1="" S2="" S3="0" \
@@ -377,7 +385,7 @@ Main() {
 	exec > >(tee /dev/stderr)
 
 	if [ $(echo "${intervals}" | wc -w) -eq 1 ]; then
-		VlcGet "${Url}" "${Title}" $((Is${intervals})) \
+		VlcGet "${VideoUrl}" "${Title}" $((Is${intervals})) \
 		$((Ie${intervals})) $((Il${intervals})) || \
 			echo "error in vlc download"
 	else
@@ -386,7 +394,7 @@ Main() {
 		err=""
 		for i in ${intervals}; do
 			title="${tmpDir}${i}.mpg"
-			if ! VlcGet "${Url}" "${title}" $((Is${i})) \
+			if ! VlcGet "${VideoUrl}" "${title}" $((Is${i})) \
 			$((Ie${i})) $((Il${i})); then
 				echo "error in vlc download"
 				err="y"
