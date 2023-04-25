@@ -144,6 +144,16 @@ VerifyData() {
 	if [ -n "${VideoUrl}" ]; then
 		if [ -s "${VideoUrl}" ]; then
 			size="$(_fileSize "${VideoUrl}")"
+		elif size="$(
+		options="$(! set | \
+			grep -qsEe 'PROXY=.*(localhost|127\.0\.0\.1)' || {
+				printf "%s " "--noproxy"
+				sed -e 's/[^/]*\/\/\([^@]*@\)\?\([^:/]*\).*/\2/' <<< "${VideoUrl}"
+			})"
+		LANGUAGE=C \
+		curl -sGI ${options} "${VideoUrl}" 2>&1 | \
+		sed -nre '/^[Cc]ontent-[Ll]ength: ([[:digit:]]+).*/{s//\1/;p;q0};${q1}')"; then
+			:
 		else
 			size="$(LANGUAGE=C \
 				wget --verbose --spider -T 7 \
