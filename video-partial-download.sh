@@ -115,7 +115,7 @@ VerifyData() {
 	VideoUrl=""
 	duration=""
 	getVideoUrl=""
-	while [ -z "${duration}" -o -z "${getVideoUrl}" ]; do
+	while [ -z "${duration}" -a -z "${getVideoUrl}" ]; do
 		if duration="$(LANGUAGE=C \
 		ffmpeg -nostdin -hide_banner -y -i "${VideoUrl:-"${Url}"}" 2>&1 | \
 		sed -n '/^Input #0/,/^At least one/ {/^[^A]/p}' | \
@@ -126,7 +126,6 @@ VerifyData() {
 		elif [ -z "${getVideoUrl}" ]; then
 			VideoUrl="$(yt-dlp "${Url}" --get-url 2> /dev/null)" || :
 			getVideoUrl="y"
-			continue
 		fi
 	done
 	if [ -z "${VideoUrl}" ]; then
@@ -300,14 +299,14 @@ VerifyData() {
 		Tl=$((Tl+length))
 	done
 
-	echo "Downloading $(_thsSep ${Ts}) seconds," \
-		"$(test ${Tl} -eq 0 || \
-			echo "aprox. $(_thsSep ${Tl}) bytes")"
-
-	[ -n "${intervals}" ] || {
+	if [ -n "${intervals}" ]; then
+		echo "Downloading $(_thsSep ${Ts}) seconds," \
+			"$(test ${Tl} -eq 0 || \
+				echo "aprox. $(_thsSep ${Tl}) bytes")"
+	else
 		echo "have not defined any interval"
 		err="y"
-	}
+	fi
 }
 
 Main() {
