@@ -310,6 +310,8 @@ VerifyData() {
 		echo "have not defined any interval"
 		err="y"
 	fi
+	[ -z "${err}" ] || \
+		echo "Err: Invalid data"
 }
 
 Main() {
