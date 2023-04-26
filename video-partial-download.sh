@@ -11,7 +11,9 @@ _timeSeconds() {
 		-e '/([^[:digit:]])0([[:digit:]])/s//\1\2/g' \
 		-e 's/^([[:digit:]]+):([[:digit:]]+):([[:digit:]]+)$/((\1*60)+\2)*60+\3/p' \
 		<<< "${time}")"
-	echo $((${time:-0}))
+	[ -z "${time}" ] || \
+		let "time=${time}"
+	echo ${time:-0}
 }
 
 _fileSize() {
@@ -23,8 +25,7 @@ _line() {
 	local line=${1}
 	shift
 	awk -v line="${line}" \
-		'NR == line {print; rc=1; exit}
-		END{if (! rc) print 0; exit}' \
+		'NR == line {print; exit}' \
 		<<< "${@}"
 }
 
@@ -33,13 +34,16 @@ _thsSep() {
 }
 
 _natural() {
-	local v
-	v="$(_line ${line} "${RES}")"
-	if ! printf '%s\n' "${v}" | grep -qsxEe "[[:digit:]]+"; then
-		printf '%s\n' "${v}"
-		return 1
+	local v w
+	v="$(_line ${line} "${Res}" | \
+		sed -re '/^[[:blank:]]+$/s///')"
+	if w="$(printf '%d\n' "${v}" 2> /dev/null)"; then
+		printf '%d\n' "${w}"
+	else
+		printf '%s\n' "${v:-"0"}"
+		[ -z "${v}" ] || \
+			return 1
 	fi
-	printf '%d\n' "${v}"
 }
 
 VlcGet() {
@@ -53,15 +57,15 @@ VlcGet() {
 	echo "vlc download \"${url}\" from $(_thsSep ${sTime}) to $(_thsSep ${eTime})," \
 		"aprox.length $(_thsSep ${lengthAprox}) bytes"
 
-	vlc ${vlcOptions} \
+	vlc ${VlcOptions} \
 		--no-one-instance \
 		"${url}" \
-		--sout "file/${mux}:${title}" \
+		--sout "file/${Mux}:${title}" \
 		--start-time ${sTime} \
 		--stop-time ${eTime} \
 		--run-time $((4+eTime-sTime)) \
 		vlc://quit \
-		> "${tmpDir}$(basename "${title}").txt" 2>&1
+		> "${TmpDir}$(basename "${title}").txt" 2>&1
 
 	if [ ! -s "${title}" ]; then
 		echo "Err: download file \"${title}\" does not exist"
@@ -73,24 +77,31 @@ VlcGet() {
 		echo "Warn: download file \"${title}\" is too short"
 }
 
+GetDuration() {
+	LANGUAGE=C \
+	ffmpeg -nostdin -hide_banner -y -i "${VideoUrl:-"${Url}"}" 2>&1 | \
+	sed -n '/^Input #0/,/^At least one/ {/^[^A]/p}' | \
+	sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{s//\1/;p;q}' || :
+}
+
 VerifyData() {
-	local p r s \
-		duration durationSeconds getVideoUrl
-	: > "${msgs}"
+	local p r s line \
+		duration durationSeconds
+	: > "${Msgs}"
 	echo "Messages"
 	err=""
-	Url="$(_line 1 "${RES}")"
+	Url="$(_line 1 "${Res}")"
 	[ -n "${Url}" ] || {
 		echo "URL must be specified"
 		return 0
 	}
-	Title="$(_line 2 "${RES}")"
-	RES="$(printf '%s\n' "${RES}" | \
+	Title="$(_line 2 "${Res}")"
+	Res="$(printf '%s\n' "${Res}" | \
 		sed -re '/^[[:blank:]]*$/s//0/' | \
 		tail -n +3)"
 	{ echo '#!/bin/sh'
 		printf '%s %s %s ' "${0}" "'${Url}'" "'${Title}'"
-		r="${RES}"
+		r="${Res}"
 		while p=$(wc -l <<< "${r}");
 		[ ${p} -gt 0 -a $((p%6)) -eq 0 ]; do
 			s="$(printf '%s\n' ${r} | head -n 6)"
@@ -99,10 +110,10 @@ VerifyData() {
 			r="$(printf '%s\n' ${r} | tail -n +7)"
 		done
 		echo
-	} > "${tmpDir}cmd.sh"
+	} > "${TmpDir}cmd.sh"
 	echo 'Command'
 	printf '%s %s %s ' "${0}" "'${Url}'" "'${Title}'"
-	r="${RES}"
+	r="${Res}"
 	while p=$(wc -l <<< "${r}");
 	[ ${p} -gt 0 -a $((p%6)) -eq 0 ]; do
 		s="$(printf '%s\n' ${r} | head -n 6)"
@@ -113,32 +124,24 @@ VerifyData() {
 	echo
 
 	VideoUrl=""
-	duration=""
-	getVideoUrl=""
-	while [ -z "${duration}" -a -z "${getVideoUrl}" ]; do
-		if duration="$(LANGUAGE=C \
-		ffmpeg -nostdin -hide_banner -y -i "${VideoUrl:-"${Url}"}" 2>&1 | \
-		sed -n '/^Input #0/,/^At least one/ {/^[^A]/p}' | \
-		sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{s//\1/;p;q}')" && \
-		[ -n "${duration}" ]; then
-			VideoUrl="${VideoUrl:-"${Url}"}"
-			getVideoUrl="y"
-		elif [ -z "${getVideoUrl}" ]; then
-			VideoUrl="$(yt-dlp "${Url}" --get-url 2> /dev/null)" || :
-			getVideoUrl="y"
-		fi
-	done
+	if duration="$(GetDuration)" && \
+	[ -n "${duration}" ]; then
+		VideoUrl="${Url}"
+	elif VideoUrl="$(yt-dlp "${Url}" --get-url 2> /dev/null)"; then
+		duration="$(GetDuration)"
+	fi
 	if [ -z "${VideoUrl}" ]; then
 		duration="0:0:0"
+		durationSeconds=0
 		echo "this URL is invalid"
 		err="y"
-	elif [ "${VideoUrl}" != "${Url}" ]; then
-		echo "Real video URL is \"${VideoUrl}\""
-		echo "# Real video URL is \"${VideoUrl}\"" >> "${tmpDir}cmd.sh"
+	else
+		[ "${VideoUrl}" = "${Url}" ] || \
+			echo "Real video URL is \"${VideoUrl}\""
+		durationSeconds="$(_timeSeconds "${duration}")"
+		echo "video duration is \"${duration}\"," \
+			"$(_thsSep ${durationSeconds}) seconds"
 	fi
-	durationSeconds="$(_timeSeconds "${duration}")"
-	echo "video duration is \"${duration}\"," \
-		"$(_thsSep ${durationSeconds}) seconds"
 	size=""
 	if [ -n "${VideoUrl}" ]; then
 		if [ -s "${VideoUrl}" ]; then
@@ -181,7 +184,7 @@ VerifyData() {
 # mpeg1 	MPEG-1 multiplexing - recommended for portability. Only works with mp1v video and mpga audio, but works on all known players
 # ts 	MPEG Transport Stream, primarily used for streaming MPEG. Also used in DVDs
 # ps 	MPEG Program Stream, primarily used for saving MPEG data to disk.
-# mp4 	MPEG-4 mux format, used only for MPEG-4 video and MPEG audio.
+# mp4 	MPEG-4 Mux format, used only for MPEG-4 video and MPEG audio.
 # avi 	AVI
 # asf 	ASF
 # dummy 	dummy output, can be used in creation of MP3 files.
@@ -189,15 +192,15 @@ VerifyData() {
 
 	ext="${Url##*.}"
 	case "${ext}" in
-		mp4) mux="mp4" ;;
-		*) mux="ts" ;;
+		mp4) Mux="mp4" ;;
+		*) Mux="ts" ;;
 	esac
 
-	line=0
-	intervals=""
+	Intervals=""
 	Ts=0
 	Tl=0
 	err=""
+	line=0
 	for i in $(seq 1 4); do
 		ss=0
 		se=0
@@ -213,7 +216,7 @@ VerifyData() {
 			echo "error in interval ${i}, start hour"
 			err="y"
 		fi
-		si="${si}$((S${line}))h:"
+		si="${si}$(eval echo "\${S${line}:-0}")h:"
 		let line++,1
 		if s="$(_natural)" && [ ${s} -lt 60 ]; then
 			ss=$(((ss*60)+s))
@@ -225,7 +228,7 @@ VerifyData() {
 			echo "error in interval ${i}, start minute"
 			err="y"
 		fi
-		si="${si}$((S${line}))m:"
+		si="${si}$(eval echo "\${S${line}:-0}")m:"
 		let line++,1
 		if s="$(_natural)" && [ ${s} -lt 60 ]; then
 			ss=$(((ss*60)+s))
@@ -235,7 +238,7 @@ VerifyData() {
 			echo "error in interval ${i}, start second"
 			err="y"
 		fi
-		si="${si}$((S${line}))s-"
+		si="${si}$(eval echo "\${S${line}:-0}")s-"
 		let line++,1
 		if s="$(_natural)"; then
 			se=${s}
@@ -247,7 +250,7 @@ VerifyData() {
 			echo "error in interval ${i}, end hour"
 			err="y"
 		fi
-		si="${si}$((S${line}))h:"
+		si="${si}$(eval echo "\${S${line}:-0}")h:"
 		let line++,1
 		if s="$(_natural)" && [ ${s} -lt 60 ]; then
 			se=$(((se*60)+s))
@@ -259,7 +262,7 @@ VerifyData() {
 			echo "error in interval ${i}, end minute"
 			err="y"
 		fi
-		si="${si}$((S${line}))m:"
+		si="${si}$(eval echo "\${S${line}:-0}")m:"
 		let line++,1
 		if s="$(_natural)" && [ ${s} -lt 60 ]; then
 			se=$(((se*60)+s))
@@ -269,13 +272,13 @@ VerifyData() {
 			echo "error in interval ${i}, end second"
 			err="y"
 		fi
-		si="${si}$((S${line}))s"
+		si="${si}$(eval echo "\${S${line}:-0}")s"
 		seconds=0
 		length=0
 		[ ${se} -ne ${durationSeconds} ] || \
 			let "se++,1"
 		if [ ${ss} -lt ${se} ]; then
-			intervals="${intervals}${i} "
+			Intervals="${Intervals}${i} "
 			let "Is${i}=ss,1"
 			let "Ie${i}=se,1"
 			seconds=$((se-ss))
@@ -299,7 +302,7 @@ VerifyData() {
 		Tl=$((Tl+length))
 	done
 
-	if [ -n "${intervals}" ]; then
+	if [ -n "${Intervals}" ]; then
 		echo "Downloading $(_thsSep ${Ts}) seconds," \
 			"$(test ${Tl} -eq 0 || \
 				echo "aprox. $(_thsSep ${Tl}) bytes")"
@@ -311,13 +314,13 @@ VerifyData() {
 
 Main() {
 	readonly LF=$'\n' \
-		myId="$(date +%s)" \
-		currDir="$(readlink -f .)/"
-	readonly tmpDir="${currDir}tmp-${myId}/"
-	readonly msgs="${tmpDir}msgs.txt"
+		MyId="$(date +%s)" \
+		CurrDir="$(readlink -f .)/"
+	readonly TmpDir="${CurrDir}tmp-${MyId}/"
+	readonly Msgs="${TmpDir}msgs.txt"
 
 	local Url="" Title="" VideoUrl \
-		ext mux \
+		ext Mux \
 		Sh Sm Ss \
 		S1="" S2="" S3="0" \
 		S4="" S5="" S6="0" \
@@ -327,44 +330,47 @@ Main() {
 		S16="" S17="" S18="0" \
 		S19="" S20="" S21="0" \
 		S22="" S23="" S24="0" \
-		vlcOptions \
+		VlcOptions \
 		Eh Em Es \
-		line intervals i j k \
+		Intervals \
+		i j k \
 		arg s e title files \
 		err rc
 
-	mkdir "${tmpDir}"
-	vlcOptions=""
+	mkdir "${TmpDir}"
+	VlcOptions=""
 	if [ -z "${Debug:=}" ]; then
-		vlcOptions="-I dummy"
+		VlcOptions="-I dummy"
 	elif [ "${Debug}" = "xtrace" ]; then
-		vlcOptions="-v"
+		VlcOptions="-v"
 		set +x
 		export PS4='+\t ${LINENO}:${FUNCNAME:+"${FUNCNAME}:"} '
-		exec {BASH_XTRACEFD}>> "${tmpDir}log.txt"
+		exec {BASH_XTRACEFD}>> "${TmpDir}log.txt"
 		set -x
 	fi
 
-	exec > "${msgs}"
+	exec > "${Msgs}"
 
-	RES="${1:-}${LF}${2:-}${LF}"
-	line=0
+	Res=""
 	for i in $(seq 3 ${#}); do
 		arg="$(eval echo "\$${i}")"
 		for j in 1 2; do
-			s="$(printf '%s\n' "${arg}" | cut -f ${j} -d '-')"
+			s="$(printf '%s\n' "${arg}" | cut -f ${j} -s -d '-')"
 			for k in 1 2 3; do
-				let line++,1
-				v="$(printf '%s\n' "${s}" | cut -f ${k} -d ':')"
+				v="$(printf '%s\n' "${s}" | cut -f ${k} -s -d ':')"
 				if printf '%s\n' "${v}" | grep -qsxEe "[[:digit:]]+"; then
 					let "v=v,1"
-				else
+				elif printf '%s\n' "${v}" | grep -qsxEe "[[:blank:]]*"; then
 					v=0
 				fi
-				RES="${v}${LF}"
+				[ -z "${Res}" ] && \
+					Res="${1}${LF}${2}${LF}${v}" || \
+					Res="${Res}${LF}${v}"
 			done
 		done
 	done
+	[ -n "${Res}" ] || \
+		Res="${1:-}${LF}${2:-}"
 
 	VerifyData
 
@@ -372,10 +378,10 @@ Main() {
 	rc=1
 	while [ -n "${err}" -o ${rc} -ne 0 ]; do
 		rc=0
-		RES="$(export DIALOGRC=""
+		Res="$(export DIALOGRC=""
 		dialog --stdout --no-shadow --colors \
 		--begin 29 0 --title Messages \
-		--tailboxbg "${msgs}" 14 172 \
+		--tailboxbg "${Msgs}" 14 172 \
 		--and-widget --begin 0 0 \
 		--title "VLC download video parts" --colors \
 		--extra-button --extra-label "Info" \
@@ -394,19 +400,19 @@ Main() {
 		VerifyData
 	done
 
-	Title="${Title}-${myId}.mpg"
+	Title="${Title}-${MyId}.mpg"
 	exec > >(tee /dev/stderr)
 
-	if [ $(echo "${intervals}" | wc -w) -eq 1 ]; then
-		VlcGet "${VideoUrl}" "${Title}" $((Is${intervals})) \
-		$((Ie${intervals})) $((Il${intervals})) || \
+	if [ $(echo "${Intervals}" | wc -w) -eq 1 ]; then
+		VlcGet "${VideoUrl}" "${Title}" $((Is${Intervals})) \
+		$((Ie${Intervals})) $((Il${Intervals})) || \
 			echo "error in vlc download"
 	else
-		files="${tmpDir}files.txt"
+		files="${TmpDir}files.txt"
 		: > "${files}"
 		err=""
-		for i in ${intervals}; do
-			title="${tmpDir}${i}.mpg"
+		for i in ${Intervals}; do
+			title="${TmpDir}${i}.mpg"
 			if ! VlcGet "${VideoUrl}" "${title}" $((Is${i})) \
 			$((Ie${i})) $((Il${i})); then
 				echo "error in vlc download"
@@ -416,24 +422,24 @@ Main() {
 		done
 		if [ -z "${err}" ]; then
 			echo "ffmpeg concat" $(cat "${files}")
-			if ! ( cd "${tmpDir}"
+			if ! ( cd "${TmpDir}"
 			ffmpeg -nostdin -hide_banner -y \
 			-f concat -safe 0 -i "$(basename "${files}")" \
-			-c:v copy "${currDir}${Title}" \
-			> "${tmpDir}${Title}.txt" 2>&1
+			-c:v copy "${CurrDir}${Title}" \
+			> "${TmpDir}${Title}.txt" 2>&1
 			); then
 				echo "error in video concatenation"
 			fi
-			if [ -s "${currDir}${Title}" ]; then
-				length=$(_fileSize "${currDir}${Title}")
-				echo "length of \"${currDir}${Title}\" is" \
+			if [ -s "${CurrDir}${Title}" ]; then
+				length=$(_fileSize "${CurrDir}${Title}")
+				echo "length of \"${CurrDir}${Title}\" is" \
 					"$(_thsSep ${length}) bytes"
 			fi
 		fi
 	fi
-	[ -s "${currDir}${Title}" ] || \
+	[ -s "${CurrDir}${Title}" ] || \
 		echo "error"
-	cat "${msgs}" > /dev/stderr
+	cat "${Msgs}" > /dev/stderr
 }
 
 set -o errexit -o nounset -o pipefail +o noglob +o noclobber
