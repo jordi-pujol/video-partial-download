@@ -124,7 +124,7 @@ VerifyData() {
 		i j v \
 		duration durationSeconds
 
-	exec 6>&1
+	exec {StdOut}>&1
 	rm -f "${Msgs}"
 	exec > "${Msgs}"
 	echo "Messages"
@@ -402,7 +402,7 @@ VerifyData() {
 		echo "Err: Invalid data"
 		ResOld="${Res}${LF}${Err}"
 	}
-	exec 1>&6 6>&-
+	eval exec "1>&${StdOut}" "${StdOut}>&-"
 }
 
 Main() {
@@ -412,7 +412,7 @@ Main() {
 	readonly TmpDir="${CurrDir}tmp-${MyId}/"
 	readonly Msgs="${TmpDir}msgs.txt"
 
-	local Url="" Title="" VideoUrl \
+	local Url="" Title="" VideoUrl StdOut \
 		Res ResOld Err Mux \
 		Sh Sm Ss \
 		S1="" S2="" S3="0" \
@@ -469,7 +469,7 @@ Main() {
 	done
 
 	Title="${Title}-${MyId}.mpg"
-	exec 6>&1
+	exec {StdOut}>&1
 	exec > >(tee -a "${Msgs}")
 
 	if [ $(echo "${Intervals}" | wc -w) -eq 1 ]; then
@@ -508,7 +508,7 @@ Main() {
 	fi
 	[ -s "${CurrDir}${Title}" ] || \
 		echo "error in download"
-	exec 1>&6 6>&-
+	eval exec "1>&${StdOut}" "${StdOut}>&-"
 	clear
 	cat "${Msgs}" >&2
 }
