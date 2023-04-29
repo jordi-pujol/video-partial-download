@@ -1,11 +1,11 @@
 #!/bin/bash
 
-SecondsToHms() {
+HmsFromSeconds() {
 	local time=${1}
 	printf "%d\n" $((time/3600)) $(((time%3600)/60)) $((time%60))
 }
 
-TimestampToSeconds() {
+SecondsFromTimestamp() {
 	local timestamp="${@}" \
 		time=0 factor=1 word
 	while read -r word; do
@@ -36,32 +36,32 @@ TimestampToSeconds() {
 
 TimeStamp() {
 	local time="${@}"
-	printf "%02d:%02d:%02d\n" $(SecondsToHms $(TimestampToSeconds "${time}"))
+	printf "%02d:%02d:%02d\n" $(HmsFromSeconds $(SecondsFromTimestamp "${time}"))
 }
 
 set -o errexit
 
-TimestampToSeconds "0:0:0"
+SecondsFromTimestamp "0:0:0"
 
-TimestampToSeconds ":0:0"
+SecondsFromTimestamp ":0:0"
 
-TimestampToSeconds "1101"
+SecondsFromTimestamp "1101"
 
-TimestampToSeconds "h" "10m" "s"
+SecondsFromTimestamp "h" "10m" "s"
 
-TimestampToSeconds "1 hour" "10 minutes"
+SecondsFromTimestamp "1 hour" "10 minutes"
 
-TimestampToSeconds "1h10m"
+SecondsFromTimestamp "1h10m"
 
-TimestampToSeconds "1 day" "3 hours"
+SecondsFromTimestamp "1 day" "3 hours"
 
-TimestampToSeconds "10 seconds" "3 hours"
+SecondsFromTimestamp "10 seconds" "3 hours"
 
-TimestampToSeconds "009:11:09"
+SecondsFromTimestamp "009:11:09"
 
-TimestampToSeconds "0000:009:59"
+SecondsFromTimestamp "0000:009:59"
 
-TimestampToSeconds "0:009:59"
+SecondsFromTimestamp "0:009:59"
 
 TimeStamp "1 hour" "10 minutes" "4 seconds"
 

@@ -5,12 +5,12 @@ _unquote() {
 		sed -re "s/^([\"]([^\"]*)[\"]|[']([^']*)['])$/\2\3/"
 }
 
-SecondsToHms() {
+HmsFromSeconds() {
 	local time=${1}
 	printf "%d\n" $((time/3600)) $(((time%3600)/60)) $((time%60))
 }
 
-TimestampToSeconds() {
+SecondsFromTimestamp() {
 	local timestamp="${@}" \
 		time=0 factor=1 word
 	while read -r word; do
@@ -23,7 +23,7 @@ TimestampToSeconds() {
 		d*) factor=86400 ;;
 		0) : ;;
 		[[:digit:]]*) time=$((time+factor*word)) ;;
-		*) echo "Err: invalid word \"${word}\"" >&2; return 1 ;;
+		*) return 1 ;;
 		esac
 	done < <(sed -re ':a' \
 	-e '/^[[:blank:]]+/{s///
@@ -41,7 +41,7 @@ TimestampToSeconds() {
 
 TimeStamp() {
 	local time="${@}"
-	printf "%02d:%02d:%02d\n" $(SecondsToHms $(TimestampToSeconds "${time}"))
+	printf "%02d:%02d:%02d\n" $(HmsFromSeconds $(SecondsFromTimestamp "${time}"))
 }
 
 _fileSize() {
@@ -130,7 +130,9 @@ VerifyData() {
 			arg="$(eval echo "\$${i}")"
 			for j in 1 2; do
 				s="$(printf '%s\n' "${arg}" | cut -f ${j} -s -d '-')"
-				for v in $(SecondsToHms $(TimestampToSeconds "${s}" || echo 0)); do
+				v="$(SecondsFromTimestamp "${s}")" || \
+					echo "interval $((i-3))=\"${arg}\" is invalid \"${s}\""
+				for v in $(HmsFromSeconds ${v:-0}); do
 					[ -z "${Res}" ] && \
 						Res="${1}${LF}${2}${LF}${v}" || \
 						Res="${Res}${LF}${v}"
@@ -202,7 +204,7 @@ VerifyData() {
 		duration="${duration:-"100:0:0"}"
 		[ "${VideoUrl}" = "${Url}" ] || \
 			echo "Real video URL is \"${VideoUrl}\""
-		durationSeconds="$(TimestampToSeconds "${duration}")"
+		durationSeconds="$(SecondsFromTimestamp "${duration}")"
 		echo "video duration is \"${duration}\"," \
 			"$(_thsSep ${durationSeconds}) seconds"
 		# size
@@ -419,6 +421,7 @@ Main() {
 	exec > "${Msgs}"
 
 	Res=""
+	ResOld=""
 	VerifyData "${@}"
 
 	Err="y"
