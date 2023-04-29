@@ -288,7 +288,7 @@ VerifyData() {
 			Err="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
-		[ "${s}" = 0 ] || \
+		[ "${s}" = "0" ] || \
 			si="${si}${s}h"
 		let line++,1
 		if s="$(_natural)" && [ ${s} -lt 60 ]; then
@@ -302,7 +302,7 @@ VerifyData() {
 			Err="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
-		[ "${s}" = 0 ] || \
+		[ "${s}" = "0" ] || \
 			si="${si}${s}m"
 		let line++,1
 		if s="$(_natural)" && [ ${s} -lt 60 ]; then
@@ -314,7 +314,7 @@ VerifyData() {
 			Err="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
-		[ "${s}" = 0 ] || \
+		[ "${s}" = "0" ] || \
 			si="${si}${s}s"
 		[ "${si}" != "Interval ${i} " ] && \
 			si="${si}-" || \
@@ -331,7 +331,7 @@ VerifyData() {
 			Err="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
-		[ "${s}" = 0 ] || \
+		[ "${s}" = "0" ] || \
 			si="${si}${s}h"
 		let line++,1
 		if s="$(_natural)" && [ ${s} -lt 60 ]; then
@@ -345,7 +345,7 @@ VerifyData() {
 			Err="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
-		[ "${s}" = 0 ] || \
+		[ "${s}" = "0" ] || \
 			si="${si}${s}m"
 		let line++,1
 		if s="$(_natural)" && [ ${s} -lt 60 ]; then
@@ -357,7 +357,7 @@ VerifyData() {
 			Err="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
-		[ "${s}" = 0 ] || \
+		[ "${s}" = "0" ] || \
 			si="${si}${s}s"
 		[ ${si: -1} != "-" ] || \
 			si="${si}0"
