@@ -1,20 +1,47 @@
 #!/bin/bash
 
 _unquote() {
-	sed -re "s/^([\"]([^\"]*)[\"]|[']([^']*)['])$/\2\3/" \
-		<<< "${@}"
+	printf "%s\n" "${@}" | \
+		sed -re "s/^([\"]([^\"]*)[\"]|[']([^']*)['])$/\2\3/"
 }
 
-_timeSeconds() {
-	local time="${1}"
-	time="$(sed -nre '/^[0]+([[:digit:]]+)/s//\1/' \
-		-e '/([^[:digit:]])[0]+([[:digit:]])/s//\1\2/g' \
-		-e '/^(([[:digit:]]+)h)*(([[:digit:]]+)m)*(([[:digit:]]+)[s]*)$/{s//\2:\4:\6/}' \
-		-e '/^([[:digit:]]+):([[:digit:]]+):([[:digit:]]+)$/{s//((\1*60)+\2)*60+\3/p}' \
-		<<< "${time}")"
-	[ -z "${time}" ] || \
-		let "time=${time}"
-	echo ${time:-0}
+SecondsToHms() {
+	local time=${1}
+	printf "%d\n" $((time/3600)) $(((time%3600)/60)) $((time%60))
+}
+
+TimestampToSeconds() {
+	local timestamp="${@}" \
+		time=0 factor=1 word
+	while read -r word; do
+		case "${word,,}" in
+		"") : ;;
+		:) factor=$((factor < 3600 ? factor*60 : factor*24)) ;;
+		s*) factor=1 ;;
+		m*) factor=60 ;;
+		h*) factor=3600 ;;
+		d*) factor=86400 ;;
+		0) : ;;
+		[[:digit:]]*) time=$((time+factor*word)) ;;
+		*) echo "Err: invalid word \"${word}\"" >&2; return 1 ;;
+		esac
+	done < <(sed -re ':a' \
+	-e '/^[[:blank:]]+/{s///
+		t a}' \
+	-e '/^0*([[:digit:]]+).*/{h;s//\1/;p
+		x;s/^[[:digit:]]+//
+		t a}' \
+	-e '/^([^[:digit:]]+).*/{h;s//\1/;p
+		x;s/^[^[:digit:]]+//
+		t a}' <<< "${timestamp}" | \
+	tac)
+
+	printf '%d\n' ${time}
+}
+
+TimeStamp() {
+	local time="${@}"
+	printf "%02d:%02d:%02d\n" $(SecondsToHms $(TimestampToSeconds "${time}"))
 }
 
 _fileSize() {
@@ -88,16 +115,38 @@ GetDuration() {
 		return 0 || \
 		echo "100:0:0"
 	[ -n "${VideoUrl}" ] || \
-	printf '%s\n' "${r}" | \
-	sed -ne '/.*Stream.*Video:.*/{q0};${q1}' || \
+	printf '%s\n' "${r}" | grep -qsie 'Stream.*Video:' || \
 		return 1
 }
 
 VerifyData() {
 	local p r s line ext \
+		i j v \
 		duration durationSeconds
 	: > "${Msgs}"
 	echo "Messages"
+	if [ ${#} -gt 0 ]; then
+		for i in $(seq 3 $((${#} <= 6 ? ${#} : 6)) ); do
+			arg="$(eval echo "\$${i}")"
+			for j in 1 2; do
+				s="$(printf '%s\n' "${arg}" | cut -f ${j} -s -d '-')"
+				for v in $(SecondsToHms $(TimestampToSeconds "${s}" || echo 0)); do
+					[ -z "${Res}" ] && \
+						Res="${1}${LF}${2}${LF}${v}" || \
+						Res="${Res}${LF}${v}"
+				done
+			done
+		done
+		[ ${#} -eq 0 ] || \
+		[ -n "${Res}" ] || \
+			Res="${1:-}${LF}${2:-}"
+		for i in $(seq $((${#}+1)) 6); do
+			Res="${Res}${LF}0"
+		done
+
+		ResOld=""
+	fi
+
 	Err=""
 	Url="$(_line 1 "${Res}")"
 	[ -n "${Url}" ] || {
@@ -153,7 +202,7 @@ VerifyData() {
 		duration="${duration:-"100:0:0"}"
 		[ "${VideoUrl}" = "${Url}" ] || \
 			echo "Real video URL is \"${VideoUrl}\""
-		durationSeconds="$(_timeSeconds "${duration}")"
+		durationSeconds="$(TimestampToSeconds "${duration}")"
 		echo "video duration is \"${duration}\"," \
 			"$(_thsSep ${durationSeconds}) seconds"
 		# size
@@ -234,7 +283,7 @@ VerifyData() {
 		si="${si}$(eval echo "\${S${line}:-0}")h:"
 		let line++,1
 		if s="$(_natural)" && [ ${s} -lt 60 ]; then
-			ss=$(((ss*60)+s))
+			ss=$((ss*60+s))
 			let "S${line}=s,1"
 			[ $((S${line})) -gt 0 ] || \
 				eval "S${line}="
@@ -246,7 +295,7 @@ VerifyData() {
 		si="${si}$(eval echo "\${S${line}:-0}")m:"
 		let line++,1
 		if s="$(_natural)" && [ ${s} -lt 60 ]; then
-			ss=$(((ss*60)+s))
+			ss=$((ss*60+s))
 			let "S${line}=s,1"
 		else
 			eval S${line}='${s}'
@@ -268,7 +317,7 @@ VerifyData() {
 		si="${si}$(eval echo "\${S${line}:-0}")h:"
 		let line++,1
 		if s="$(_natural)" && [ ${s} -lt 60 ]; then
-			se=$(((se*60)+s))
+			se=$((se*60+s))
 			let "S${line}=s,1"
 			[ $((S${line})) -gt 0 ] || \
 				eval "S${line}="
@@ -280,7 +329,7 @@ VerifyData() {
 		si="${si}$(eval echo "\${S${line}:-0}")m:"
 		let line++,1
 		if s="$(_natural)" && [ ${s} -lt 60 ]; then
-			se=$(((se*60)+s))
+			se=$((se*60+s))
 			let "S${line}=s,1"
 		else
 			eval S${line}='${s}'
@@ -325,8 +374,10 @@ VerifyData() {
 		echo "have not defined any interval"
 		Err="y"
 	fi
-	[ -z "${Err}" ] || \
+	[ -z "${Err}" ] || {
 		echo "Err: Invalid data"
+		ResOld="${Res}${LF}${Err}"
+	}
 }
 
 Main() {
@@ -368,32 +419,7 @@ Main() {
 	exec > "${Msgs}"
 
 	Res=""
-	for i in $(seq 3 $((${#} <= 6 ? ${#} : 6)) ); do
-		arg="$(eval echo "\$${i}")"
-		for j in 1 2; do
-			s="$(printf '%s\n' "${arg}" | cut -f ${j} -s -d '-')"
-			for k in 1 2 3; do
-				v="$(printf '%s\n' "${s}" | cut -f ${k} -s -d ':')"
-				if printf '%s\n' "${v}" | grep -qsxEe "[[:digit:]]+"; then
-					let "v=v,1"
-				elif printf '%s\n' "${v}" | grep -qsxEe "[[:blank:]]*"; then
-					v=0
-				fi
-				[ -z "${Res}" ] && \
-					Res="${1}${LF}${2}${LF}${v}" || \
-					Res="${Res}${LF}${v}"
-			done
-		done
-	done
-	[ ${#} -eq 0 ] || \
-	[ -n "${Res}" ] || \
-		Res="${1:-}${LF}${2:-}"
-	for i in $(seq $((${#}+1)) 6); do
-		Res="${Res}${LF}0"
-	done
-
-	ResOld=""
-	VerifyData
+	VerifyData "${@}"
 
 	Err="y"
 	rc=1
