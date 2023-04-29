@@ -287,7 +287,9 @@ VerifyData() {
 			echo "error in interval ${i}, start hour"
 			Err="y"
 		fi
-		si="${si}$(eval echo "\${S${line}:-0}")h:"
+		s="$(eval echo "\${S${line}:-0}")"
+		[ "${s}" = 0 ] || \
+			si="${si}${s}h"
 		let line++,1
 		if s="$(_natural)" && [ ${s} -lt 60 ]; then
 			ss=$((ss*60+s))
@@ -299,7 +301,9 @@ VerifyData() {
 			echo "error in interval ${i}, start minute"
 			Err="y"
 		fi
-		si="${si}$(eval echo "\${S${line}:-0}")m:"
+		s="$(eval echo "\${S${line}:-0}")"
+		[ "${s}" = 0 ] || \
+			si="${si}${s}m"
 		let line++,1
 		if s="$(_natural)" && [ ${s} -lt 60 ]; then
 			ss=$((ss*60+s))
@@ -309,7 +313,12 @@ VerifyData() {
 			echo "error in interval ${i}, start second"
 			Err="y"
 		fi
-		si="${si}$(eval echo "\${S${line}:-0}")s-"
+		s="$(eval echo "\${S${line}:-0}")"
+		[ "${s}" = 0 ] || \
+			si="${si}${s}s"
+		[ "${si}" != "Interval ${i} " ] && \
+			si="${si}-" || \
+			si="${si}0-"
 		let line++,1
 		if s="$(_natural)"; then
 			se=${s}
@@ -321,7 +330,9 @@ VerifyData() {
 			echo "error in interval ${i}, end hour"
 			Err="y"
 		fi
-		si="${si}$(eval echo "\${S${line}:-0}")h:"
+		s="$(eval echo "\${S${line}:-0}")"
+		[ "${s}" = 0 ] || \
+			si="${si}${s}h"
 		let line++,1
 		if s="$(_natural)" && [ ${s} -lt 60 ]; then
 			se=$((se*60+s))
@@ -333,7 +344,9 @@ VerifyData() {
 			echo "error in interval ${i}, end minute"
 			Err="y"
 		fi
-		si="${si}$(eval echo "\${S${line}:-0}")m:"
+		s="$(eval echo "\${S${line}:-0}")"
+		[ "${s}" = 0 ] || \
+			si="${si}${s}m"
 		let line++,1
 		if s="$(_natural)" && [ ${s} -lt 60 ]; then
 			se=$((se*60+s))
@@ -343,7 +356,11 @@ VerifyData() {
 			echo "error in interval ${i}, end second"
 			Err="y"
 		fi
-		si="${si}$(eval echo "\${S${line}:-0}")s"
+		s="$(eval echo "\${S${line}:-0}")"
+		[ "${s}" = 0 ] || \
+			si="${si}${s}s"
+		[ ${si: -1} != "-" ] || \
+			si="${si}0"
 		seconds=0
 		length=0
 		[ ${se} -ne ${durationSeconds} ] || \
@@ -452,6 +469,7 @@ Main() {
 	done
 
 	Title="${Title}-${MyId}.mpg"
+	exec 6>&1
 	exec > >(tee -a "${Msgs}")
 
 	if [ $(echo "${Intervals}" | wc -w) -eq 1 ]; then
@@ -490,7 +508,9 @@ Main() {
 	fi
 	[ -s "${CurrDir}${Title}" ] || \
 		echo "error in download"
-	cat "${Msgs}" > /dev/stderr
+	exec 1>&6 6>&-
+	clear
+	cat "${Msgs}" >&2
 }
 
 set -o errexit -o nounset -o pipefail +o noglob +o noclobber
