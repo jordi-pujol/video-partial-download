@@ -120,10 +120,13 @@ GetDuration() {
 }
 
 VerifyData() {
-	local p r s line ext \
+	local fdout arg p r s line ext \
 		i j v \
 		duration durationSeconds
-	: > "${Msgs}"
+
+	exec 6>&1
+	rm -f "${Msgs}"
+	exec > "${Msgs}"
 	echo "Messages"
 	if [ ${#} -gt 0 ]; then
 		for i in $(seq 3 $((${#} <= 6 ? ${#} : 6)) ); do
@@ -157,36 +160,38 @@ VerifyData() {
 		return 0
 	}
 	Title="$(_line 2 "${Res}")"
-	Res="$(printf '%s\n' "${Res}" | \
-		sed -re '3,$ {/^[[:blank:]]*$/s//0/'})"
-	[ -z "${Title}" -o "${Res}" != "${ResOld}" ] || \
+	Res="$(sed -re '3,$ {/^[[:blank:]]*$/s//0/}' <<< "${Res}")"
+	[ "${Url}" != "$(_line 1 "${ResOld}")" -o -z "${Title}" ] || \
+	[ "$(tail -n +3 <<< "${Res}")" != "$(tail -n +3 <<< "${ResOld}")" ] || \
 		return 0
 	ResOld="${Res}"
-	Res="$(printf '%s\n' "${Res}" | \
-		tail -n +3)"
+	Res="$(tail -n +3 <<< "${Res}")"
 	{ echo '#!/bin/sh'
-		printf '%s %s %s ' "${0}" "'${Url}'" "'${Title}'"
+		printf '%s %s %s \\\n' "${0}" "'${Url}'" "'${Title}'"
 		r="${Res}"
 		while p=$(wc -l <<< "${r}");
 		[ ${p} -gt 0 -a $((p%6)) -eq 0 ]; do
-			s="$(printf '%s\n' ${r} | head -n 6)"
-			! grep -qsxvF '0' <<< "${s}" || \
-				printf "'%s:%s:%s-%s:%s:%s' " ${s}
-			r="$(printf '%s\n' ${r} | tail -n +7)"
+			s="$(head -n 6 <<< "${r}")"
+			! grep -qsxvF '0' <<< "${s}" || {
+				printf " '"
+				sep=""
+				while read -r v; do
+					printf '%s%s' "${sep}" "${v}"
+					sep=":"
+				done < <(head -n 3 <<< "${s}")
+				printf "-"
+				sep=""
+				while read -r v; do
+					printf '%s%s' "${sep}" "${v}"
+					sep=":"
+				done < <(tail -n +4 <<< "${s}")
+				printf "'"
+			}
+			r="$(tail -n +7 <<< "${r}")"
 		done
 		echo
 	} > "${TmpDir}cmd.sh"
-	echo 'Command'
-	printf '%s %s %s ' "${0}" "'${Url}'" "'${Title}'"
-	r="${Res}"
-	while p=$(wc -l <<< "${r}");
-	[ ${p} -gt 0 -a $((p%6)) -eq 0 ]; do
-		s="$(printf '%s\n' "${r}" | head -n 6)"
-		! grep -qsxvF '0' <<< "${s}" || \
-			printf "'%s:%s:%s-%s:%s:%s' " ${s}
-		r="$(printf '%s\n' "${r}" | tail -n +7)"
-	done
-	echo
+	tail -n +2 "${TmpDir}cmd.sh"
 
 	VideoUrl=""
 	if duration="$(GetDuration)"; then
@@ -380,6 +385,7 @@ VerifyData() {
 		echo "Err: Invalid data"
 		ResOld="${Res}${LF}${Err}"
 	}
+	exec 1>&6 6>&-
 }
 
 Main() {
@@ -402,9 +408,7 @@ Main() {
 		S22="" S23="" S24="0" \
 		VlcOptions \
 		Intervals \
-		i j k \
-		arg s v title files \
-		rc
+		i title files rc
 
 	mkdir "${TmpDir}"
 	VlcOptions=""
@@ -418,12 +422,9 @@ Main() {
 		set -x
 	fi
 
-	exec > "${Msgs}"
-
 	Res=""
 	ResOld=""
 	VerifyData "${@}"
-
 	Err="y"
 	rc=1
 	while [ -n "${Err}" -o ${rc} -ne 0 ]; do
@@ -451,7 +452,7 @@ Main() {
 	done
 
 	Title="${Title}-${MyId}.mpg"
-	exec > >(tee /dev/stderr)
+	exec > >(tee -a "${Msgs}")
 
 	if [ $(echo "${Intervals}" | wc -w) -eq 1 ]; then
 		VlcGet "${VideoUrl}" "${Title}" $((Is${Intervals})) \
