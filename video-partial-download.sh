@@ -275,7 +275,7 @@ VerifyData() {
 	for i in $(seq 1 4); do
 		ss=0
 		se=0
-		si="Interval ${i} "
+		si="Interval ${i}: "
 		let line++,1
 		if s="$(_natural)"; then
 			ss=${s}
@@ -316,7 +316,7 @@ VerifyData() {
 		s="$(eval echo "\${S${line}:-0}")"
 		[ "${s}" = "0" ] || \
 			si="${si}${s}s"
-		[ "${si}" != "Interval ${i} " ] && \
+		[ "${si}" != "Interval ${i}: " ] && \
 			si="${si}-" || \
 			si="${si}0-"
 		let line++,1
