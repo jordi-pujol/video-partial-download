@@ -88,12 +88,11 @@ _thsSep() {
 _natural() {
 	local v w
 	v="$(_line ${line} "${Res}" | \
-		sed -re '/^[[:blank:]]+$/s///')"
-	[ -n "${v}" ] && \
+		sed -re '/^[[:blank:]]*$/s//0/')"
+	[ -n "${v:=0}" ] && \
 	w="$(printf '%d\n' "${v}" 2> /dev/null)" || {
-		printf '%s\n' "${v:-"0"}"
-		[ -z "${v}" ] || \
-			return 1
+		printf '%s\n' "${v}"
+		return 1
 	}
 	printf '%d\n' "${w}"
 }
@@ -107,7 +106,7 @@ VlcGet() {
 		length
 
 	echo "vlc download \"${url}\" from $(_thsSep ${sTime}) to $(_thsSep ${eTime})," \
-		"aprox.length $(_thsSep ${lengthAprox}) bytes"
+		"$(_thsSep ${lengthAprox}) bytes"
 
 	vlc ${VlcOptions} \
 		--no-one-instance \
@@ -189,8 +188,10 @@ VerifyData() {
 	Title="$(_line 2 "${Res}")"
 	Res="$(sed -re '3,$ {/^[[:blank:]]*$/s//0/}' <<< "${Res}")"
 	[ "${Url}" != "$(_line 1 "${ResOld}")" -o -z "${Title}" ] || \
-	[ "$(tail -n +3 <<< "${Res}")" != "$(tail -n +3 <<< "${ResOld}")" ] || \
+	[ "$(tail -n +3 <<< "${Res}")" != "$(tail -n +3 <<< "${ResOld}")" ] || {
+		cat "${Msgs}.bak"
 		return 0
+	}
 	ResOld="${Res}"
 	Res="$(tail -n +3 <<< "${Res}")"
 	{ echo '#!/bin/sh'
@@ -410,16 +411,16 @@ VerifyData() {
 		fi
 		echo "${si} from ${ss} to ${se}," \
 			"$(test ${length} -eq 0 || \
-				echo "$(_thsSep ${seconds}) seconds," \
-					"aprox. $(_thsSep ${length}) bytes")"
+				echo "downloading $(_thsSep ${seconds}) seconds," \
+					"$(_thsSep ${length}) bytes")"
 		Ts=$((Ts+seconds))
 		Tl=$((Tl+length))
 	done
 
 	if [ -n "${Intervals}" ]; then
-		echo "Downloading $(_thsSep ${Ts}) seconds," \
+		echo "Downloading $(_thsSep ${Ts}) seconds" \
 			"$(test ${Tl} -eq 0 || \
-				echo "aprox. $(_thsSep ${Tl}) bytes")"
+				echo ", $(_thsSep ${Tl}) bytes")"
 	else
 		echo "have not defined any interval"
 		Err="y"
@@ -494,6 +495,7 @@ Main() {
 		[ ${rc} -ne 1 -a ${rc} -ne 255 ] || \
 			exit 0
 
+		tail -n +2 "${Msgs}" > "${Msgs}.bak"
 		exec {StdOut}>&1
 		rm -f "${Msgs}"
 		exec > "${Msgs}"
