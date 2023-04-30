@@ -1,5 +1,28 @@
 #!/bin/bash
 
+#  video-partial-download
+#
+#  Download only some parts of a video URL.
+#  We must specify start time and stop time of each part.
+#  $Revision: 1.0 $
+#
+#  Copyright (C) 2023-2023 Jordi Pujol <jordipujolp AT gmail DOT com>
+#
+#  This program is free software; you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation; either version 3, or (at your option)
+#  any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software
+#  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+#************************************************************************
+
 _unquote() {
 	printf "%s\n" "${@}" | \
 		sed -re "s/^([\"]([^\"]*)[\"]|[']([^']*)['])$/\2\3/"
@@ -7,7 +30,7 @@ _unquote() {
 
 HmsFromSeconds() {
 	local time=${1}
-	printf "%d\n" $((time/3600)) $(((time%3600)/60)) $((time%60))
+	printf "%d\t" $((time/3600)) $(((time%3600)/60)) $((time%60))
 }
 
 SecondsFromTimestamp() {
@@ -41,12 +64,13 @@ SecondsFromTimestamp() {
 
 TimeStamp() {
 	local time="${@}"
-	printf "%02d:%02d:%02d\n" $(HmsFromSeconds $(SecondsFromTimestamp "${time}"))
+	printf "%02d:%02d:%02d\n" \
+		$(HmsFromSeconds $(SecondsFromTimestamp "${time}" || echo 0))
 }
 
 _fileSize() {
 	local f="${1}"
-	stat --format %s "${f}"
+	stat --format '%s' "${f}"
 }
 
 _line() {
@@ -65,13 +89,13 @@ _natural() {
 	local v w
 	v="$(_line ${line} "${Res}" | \
 		sed -re '/^[[:blank:]]+$/s///')"
-	if w="$(printf '%d\n' "${v}" 2> /dev/null)"; then
-		printf '%d\n' "${w}"
-	else
+	[ -n "${v}" ] && \
+	w="$(printf '%d\n' "${v}" 2> /dev/null)" || {
 		printf '%s\n' "${v:-"0"}"
 		[ -z "${v}" ] || \
 			return 1
-	fi
+	}
+	printf '%d\n' "${w}"
 }
 
 VlcGet() {
@@ -110,32 +134,37 @@ GetDuration() {
 	r="$(LANGUAGE=C \
 	ffmpeg -nostdin -hide_banner -y -i "${VideoUrl:-"${Url}"}" 2>&1 | \
 	sed -n '/^Input #0/,/^At least one/ {/^[^A]/p}')"
+
 	printf '%s\n' "${r}" | \
-	sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{s//\1/;p;q};${q1}' && \
-		return 0 || \
+	sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{s//\1/;p;q};${q1}' || {
 		echo "100:0:0"
-	[ -n "${VideoUrl}" ] || \
-	printf '%s\n' "${r}" | grep -qsie 'Stream.*Video:' || \
-		return 1
+		[ -n "${VideoUrl}" ] || \
+		printf '%s\n' "${r}" | grep -qsie 'Stream.*Video:' || \
+			return 1
+	}
 }
 
 VerifyData() {
-	local fdout arg p r s line ext \
+	local arg p r s line ext \
 		i j v \
 		duration durationSeconds
 
-	exec {StdOut}>&1
-	rm -f "${Msgs}"
-	exec > "${Msgs}"
 	echo "Messages"
 	if [ ${#} -gt 0 ]; then
 		for i in $(seq 3 $((${#} <= 6 ? ${#} : 6)) ); do
 			arg="$(eval echo "\$${i}")"
 			for j in 1 2; do
 				s="$(printf '%s\n' "${arg}" | cut -f ${j} -s -d '-')"
-				v="$(SecondsFromTimestamp "${s}")" || \
+				if v="$(SecondsFromTimestamp "${s}")"; then
+					v="$(HmsFromSeconds ${v})"
+				else
 					echo "interval $((i-3))=\"${arg}\" is invalid \"${s}\""
-				for v in $(HmsFromSeconds ${v:-0}); do
+					v="$(sed -nre '/[[:blank:]]+/s///g' \
+						-e '/^0*([^:]+):0*([^:]+):0*([^:]+)$/{s//\1h\2m\3s/;p;q}' \
+						-e '/.*/{s//0/;p}' <<< "${s}")"
+					v="$(HmsFromSeconds "$(SecondsFromTimestamp "${v}" || echo 0)")"
+				fi
+				for v in ${v}; do
 					[ -z "${Res}" ] && \
 						Res="${1}${LF}${2}${LF}${v}" || \
 						Res="${Res}${LF}${v}"
@@ -148,8 +177,6 @@ VerifyData() {
 		for i in $(seq $((${#}+1)) 6); do
 			Res="${Res}${LF}0"
 		done
-
-		ResOld=""
 	fi
 
 	Err=""
@@ -316,7 +343,7 @@ VerifyData() {
 		s="$(eval echo "\${S${line}:-0}")"
 		[ "${s}" = "0" ] || \
 			si="${si}${s}s"
-		[ "${si}" != "Interval ${i}: " ] && \
+		[ "${si: -1}" != " " ] && \
 			si="${si}-" || \
 			si="${si}0-"
 		let line++,1
@@ -383,9 +410,8 @@ VerifyData() {
 		fi
 		echo "${si} from ${ss} to ${se}," \
 			"$(test ${length} -eq 0 || \
-				echo "$(_thsSep ${seconds}) seconds,")" \
-			"$(test ${length} -eq 0 || \
-				echo "aprox. $(_thsSep ${length}) bytes")"
+				echo "$(_thsSep ${seconds}) seconds," \
+					"aprox. $(_thsSep ${length}) bytes")"
 		Ts=$((Ts+seconds))
 		Tl=$((Tl+length))
 	done
@@ -402,7 +428,6 @@ VerifyData() {
 		echo "Err: Invalid data"
 		ResOld="${Res}${LF}${Err}"
 	}
-	eval exec "1>&${StdOut}" "${StdOut}>&-"
 }
 
 Main() {
@@ -441,19 +466,23 @@ Main() {
 
 	Res=""
 	ResOld=""
+	exec {StdOut}>&1
+	rm -f "${Msgs}"
+	exec > "${Msgs}"
 	VerifyData "${@}"
+	eval exec "1>&${StdOut}" "${StdOut}>&-"
 	Err="y"
 	rc=1
 	while [ -n "${Err}" -o ${rc} -ne 0 ]; do
 		rc=0
 		Res="$(export DIALOGRC=""
 		dialog --stdout --no-shadow --colors \
-		--begin 29 0 --title Messages \
-		--tailboxbg "${Msgs}" 14 172 \
+		--begin 25 0 --title Messages \
+		--tailboxbg "${Msgs}" 18 172 \
 		--and-widget --begin 0 0 \
 		--title "VLC download video parts" --colors \
 		--extra-button --extra-label "Info" \
-		--form ' Enter Values, press Enter:' 28 172 20 \
+		--form ' Enter Values, press Enter:' 24 172 20 \
 		'' 1 1 'URL . . . . . >' 1 1 0 0 '' 1 22 "${Url}" 1 22 50 1024 \
 		'' 3 1 'Description . ' 3 1 0 0 '' 3 22 "${Title}" 3 22 50 1024 \
 		'' 5 1 'Interval . . ' 5 1 0 0 '' 5 22 "${S1}" 5 22 4 4 '' 5 26 'h' 5 26 0 0 '' 5 27 "${S2}" 5 27 3 3 '' 5 30 'm' 5 30 0 0 '' 5 31 "${S3}" 5 31 3 3 '' 5 34 's-' 5 34 0 0 '' 5 36 "${S4}" 5 36 4 4 '' 5 40 'h' 5 40 0 0 '' 5 41 "${S5}" 5 41 3 3 '' 5 44 'm' 5 44 0 0 '' 5 45 "${S6}" 5 45 3 3 '' 5 48 's' 5 48 0 0 \
@@ -465,7 +494,11 @@ Main() {
 		[ ${rc} -ne 1 -a ${rc} -ne 255 ] || \
 			exit 0
 
+		exec {StdOut}>&1
+		rm -f "${Msgs}"
+		exec > "${Msgs}"
 		VerifyData
+		eval exec "1>&${StdOut}" "${StdOut}>&-"
 	done
 
 	Title="${Title}-${MyId}.mpg"
