@@ -87,7 +87,7 @@ _thsSep() {
 
 _natural() {
 	local v w
-	v="$(_line ${line} "${Res}" | \
+	v="$(_line $((line+2)) "${Res}" | \
 		sed -re '/^[[:blank:]]*$/s//0/')"
 	[ -n "${v:=0}" ] && \
 	w="$(printf '%d\n' "${v}" 2> /dev/null)" || {
@@ -144,9 +144,9 @@ GetDuration() {
 }
 
 VerifyData() {
-	local arg p r s line ext \
+	local arg p r s urlPrev line ext \
 		i j v \
-		duration durationSeconds
+		recTime recLength duration durationSeconds size
 
 	echo "Messages"
 	if [ ${#} -gt 0 ]; then
@@ -186,17 +186,18 @@ VerifyData() {
 		return 0
 	}
 	Title="$(_line 2 "${Res}")"
+	urlPrev="$(_line 1 "${ResOld}")"
 	Res="$(sed -re '3,$ {/^[[:blank:]]*$/s//0/}' <<< "${Res}")"
-	[ "${Url}" != "$(_line 1 "${ResOld}")" -o -z "${Title}" ] || \
-	[ "$(tail -n +3 <<< "${Res}")" != "$(tail -n +3 <<< "${ResOld}")" ] || {
+	[ "${Url}" != "${urlPrev}" -o -z "${Title}" ] || \
+	[ "$(tail -n +3 <<< "${Res}")" != "$(tail -n +3 <<< "${ResOld}")" ] || \
+	[ -z "${Intervals}" ] || {
 		cat "${Msgs}.bak"
 		return 0
 	}
 	ResOld="${Res}"
-	Res="$(tail -n +3 <<< "${Res}")"
 	{ echo '#!/bin/sh'
 		printf '%s %s %s \\\n' "${0}" "'${Url}'" "'${Title}'"
-		r="${Res}"
+		r="$(tail -n +3 <<< "${Res}")"
 		while p=$(wc -l <<< "${r}");
 		[ ${p} -gt 0 -a $((p%6)) -eq 0 ]; do
 			s="$(head -n 6 <<< "${r}")"
@@ -261,8 +262,22 @@ VerifyData() {
 		fi
 	fi
 	[ ${size:=0} -eq 0 ] && \
-		echo "video size is invalid" || \
+		echo "Warn: video size is not valid" || \
 		echo "video size is $(_thsSep ${size}) bytes"
+
+# mpeg1 	MPEG-1 multiplexing - recommended for portability. Only works with mp1v video and mpga audio, but works on all known players
+# ts 	MPEG Transport Stream, primarily used for streaming MPEG. Also used in DVDs
+# ps 	MPEG Program Stream, primarily used for saving MPEG data to disk.
+# mp4 	MPEG-4 Mux format, used only for MPEG-4 video and MPEG audio.
+# avi 	AVI
+# asf 	ASF
+# dummy 	dummy output, can be used in creation of MP3 files.
+# ogg 	Xiph.org's ogg container format. Can contain audio, video, and metadata
+	ext="${Url##*.}"
+	case "${ext}" in
+		mp4) Mux="mp4" ;;
+		*) Mux="ts" ;;
+	esac
 
 	if [ -z "${Title}" ]; then
 		if Info="$(yt-dlp "${Url}" --get-title 2> /dev/null | \
@@ -280,21 +295,6 @@ VerifyData() {
 		fi
 	fi
 
-# mpeg1 	MPEG-1 multiplexing - recommended for portability. Only works with mp1v video and mpga audio, but works on all known players
-# ts 	MPEG Transport Stream, primarily used for streaming MPEG. Also used in DVDs
-# ps 	MPEG Program Stream, primarily used for saving MPEG data to disk.
-# mp4 	MPEG-4 Mux format, used only for MPEG-4 video and MPEG audio.
-# avi 	AVI
-# asf 	ASF
-# dummy 	dummy output, can be used in creation of MP3 files.
-# ogg 	Xiph.org's ogg container format. Can contain audio, video, and metadata
-
-	ext="${Url##*.}"
-	case "${ext}" in
-		mp4) Mux="mp4" ;;
-		*) Mux="ts" ;;
-	esac
-
 	Intervals=""
 	Ts=0
 	Tl=0
@@ -304,7 +304,7 @@ VerifyData() {
 		ss=0
 		se=0
 		si="Interval ${i}: "
-		let line++,1
+		let "line++,1"
 		if s="$(_natural)"; then
 			ss=${s}
 			let "S${line}=s,1"
@@ -318,7 +318,7 @@ VerifyData() {
 		s="$(eval echo "\${S${line}:-0}")"
 		[ "${s}" = "0" ] || \
 			si="${si}${s}h"
-		let line++,1
+		let "line++,1"
 		if s="$(_natural)" && [ ${s} -lt 60 ]; then
 			ss=$((ss*60+s))
 			let "S${line}=s,1"
@@ -332,7 +332,7 @@ VerifyData() {
 		s="$(eval echo "\${S${line}:-0}")"
 		[ "${s}" = "0" ] || \
 			si="${si}${s}m"
-		let line++,1
+		let "line++,1"
 		if s="$(_natural)" && [ ${s} -lt 60 ]; then
 			ss=$((ss*60+s))
 			let "S${line}=s,1"
@@ -347,7 +347,7 @@ VerifyData() {
 		[ "${si: -1}" != " " ] && \
 			si="${si}-" || \
 			si="${si}0-"
-		let line++,1
+		let "line++,1"
 		if s="$(_natural)"; then
 			se=${s}
 			let "S${line}=s,1"
@@ -361,7 +361,7 @@ VerifyData() {
 		s="$(eval echo "\${S${line}:-0}")"
 		[ "${s}" = "0" ] || \
 			si="${si}${s}h"
-		let line++,1
+		let "line++,1"
 		if s="$(_natural)" && [ ${s} -lt 60 ]; then
 			se=$((se*60+s))
 			let "S${line}=s,1"
@@ -375,7 +375,7 @@ VerifyData() {
 		s="$(eval echo "\${S${line}:-0}")"
 		[ "${s}" = "0" ] || \
 			si="${si}${s}m"
-		let line++,1
+		let "line++,1"
 		if s="$(_natural)" && [ ${s} -lt 60 ]; then
 			se=$((se*60+s))
 			let "S${line}=s,1"
@@ -389,37 +389,34 @@ VerifyData() {
 			si="${si}${s}s"
 		[ ${si: -1} != "-" ] || \
 			si="${si}0"
-		seconds=0
-		length=0
-		[ ${se} -ne ${durationSeconds} ] || \
-			let "se++,1"
-		if [ ${ss} -lt ${se} ]; then
+		recTime=0
+		recLength=0
+		if [ ${se} -gt $((durationSeconds)) ]; then
+			si="${si} out of limits"
+			Err="y"
+		elif [ ${ss} -lt ${se} ]; then
 			Intervals="${Intervals}${i} "
 			let "Is${i}=ss,1"
-			let "Ie${i}=se,1"
-			seconds=$((se-ss))
+			let "Ie${i}=(se == durationSeconds ? se+1 : se),1"
+			recTime=$((Ie${i}-Is${i}))
 			[ ${durationSeconds} -eq 0 ] || \
-				length=$((seconds*size/durationSeconds))
-			let "Il${i}=length,1"
+				recLength=$((recTime*size/durationSeconds))
+			let "Il${i}=recLength,1"
 		elif [ ${ss} -ne 0 -o ${se} -ne 0 ]; then
 			si="${si} invalid"
 			Err="y"
 		fi
-		if [ ${se} -gt $((durationSeconds+1)) ]; then
-			si="${si} out of limits"
-			Err="y"
-		fi
-		echo "${si} from ${ss} to ${se}," \
-			"$(test ${length} -eq 0 || \
-				echo "downloading $(_thsSep ${seconds}) seconds," \
-					"$(_thsSep ${length}) bytes")"
-		Ts=$((Ts+seconds))
-		Tl=$((Tl+length))
+		echo "${si} from ${ss} to ${se}$( \
+			test ${recLength} -eq 0 || \
+				echo ", downloading $(_thsSep ${recTime}) seconds," \
+					"$(_thsSep ${recLength}) bytes")"
+		Ts=$((Ts+recTime))
+		Tl=$((Tl+recLength))
 	done
 
 	if [ -n "${Intervals}" ]; then
-		echo "Downloading $(_thsSep ${Ts}) seconds" \
-			"$(test ${Tl} -eq 0 || \
+		echo "Downloading $(_thsSep ${Ts}) seconds$( \
+			test ${Tl} -eq 0 || \
 				echo ", $(_thsSep ${Tl}) bytes")"
 	else
 		echo "have not defined any interval"
@@ -427,7 +424,7 @@ VerifyData() {
 	fi
 	[ -z "${Err}" ] || {
 		echo "Err: Invalid data"
-		ResOld="${Res}${LF}${Err}"
+		ResOld="${ResOld}${LF}${Err}"
 	}
 }
 
@@ -451,7 +448,7 @@ Main() {
 		S22="" S23="" S24="0" \
 		VlcOptions \
 		Intervals \
-		i title files rc
+		i title files length rc
 
 	mkdir "${TmpDir}"
 	VlcOptions=""
@@ -468,7 +465,6 @@ Main() {
 	Res=""
 	ResOld=""
 	exec {StdOut}>&1
-	rm -f "${Msgs}"
 	exec > "${Msgs}"
 	VerifyData "${@}"
 	eval exec "1>&${StdOut}" "${StdOut}>&-"
