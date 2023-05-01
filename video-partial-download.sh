@@ -39,13 +39,13 @@ SecondsFromTimestamp() {
 	while read -r word; do
 		case "${word,,}" in
 		"") : ;;
-		:) factor=$((factor < 3600 ? factor*60 : factor*24)) ;;
+		:) let "factor=(factor < 3600 ? factor*60 : factor*24),1" ;;
 		s*) factor=1 ;;
 		m*) factor=60 ;;
 		h*) factor=3600 ;;
 		d*) factor=86400 ;;
 		0) : ;;
-		[[:digit:]]*) time=$((time+factor*word)) ;;
+		[[:digit:]]*) let "time=time+factor*word,1" ;;
 		*) return 1 ;;
 		esac
 	done < <(sed -re ':a' \
@@ -157,7 +157,7 @@ VerifyData() {
 				if v="$(SecondsFromTimestamp "${s}")"; then
 					v="$(HmsFromSeconds ${v})"
 				else
-					echo "interval $((i-3))=\"${arg}\" is invalid \"${s}\""
+					echo "interval $((i-2))=\"${arg}\" is invalid \"${s}\""
 					v="$(sed -nre '/[[:blank:]]+/s///g' \
 						-e '/^0*([^:]+):0*([^:]+):0*([^:]+)$/{s//\1h\2m\3s/;p;q}' \
 						-e '/.*/{s//0/;p}' <<< "${s}")"
@@ -261,6 +261,12 @@ VerifyData() {
 				sed -nre '/^Length: ([[:digit:]]+).*/{s//\1/;p;q}')" || :
 		fi
 	fi
+
+	[ ${durationSeconds} -ne 0 ] || {
+		echo "Err: duration is zero, therefore intervals can't be checked"
+		Err="y"
+	}
+
 	[ ${size:=0} -eq 0 ] && \
 		echo "Warn: video size is not valid" || \
 		echo "video size is $(_thsSep ${size}) bytes"
@@ -306,13 +312,12 @@ VerifyData() {
 		si="Interval ${i}: "
 		let "line++,1"
 		if s="$(_natural)"; then
-			ss=${s}
-			let "S${line}=s,1"
+			let "ss=s,S${line}=s,1"
 			[ $((S${line})) -gt 0 ] || \
 				eval "S${line}="
 		else
 			eval S${line}='${s}'
-			echo "error in interval ${i}, start hour"
+			echo "Err: error in interval ${i}, start hour"
 			Err="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
@@ -320,13 +325,12 @@ VerifyData() {
 			si="${si}${s}h"
 		let "line++,1"
 		if s="$(_natural)" && [ ${s} -lt 60 ]; then
-			ss=$((ss*60+s))
-			let "S${line}=s,1"
+			let "ss=ss*60+s,S${line}=s,1"
 			[ $((S${line})) -gt 0 ] || \
 				eval "S${line}="
 		else
 			eval S${line}='${s}'
-			echo "error in interval ${i}, start minute"
+			echo "Err: error in interval ${i}, start minute"
 			Err="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
@@ -334,11 +338,10 @@ VerifyData() {
 			si="${si}${s}m"
 		let "line++,1"
 		if s="$(_natural)" && [ ${s} -lt 60 ]; then
-			ss=$((ss*60+s))
-			let "S${line}=s,1"
+			let "ss=ss*60+s,S${line}=s,1"
 		else
 			eval S${line}='${s}'
-			echo "error in interval ${i}, start second"
+			echo "Err: error in interval ${i}, start second"
 			Err="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
@@ -349,13 +352,12 @@ VerifyData() {
 			si="${si}0-"
 		let "line++,1"
 		if s="$(_natural)"; then
-			se=${s}
-			let "S${line}=s,1"
+			let "se=s,S${line}=s,1"
 			[ $((S${line})) -gt 0 ] || \
 				eval "S${line}="
 		else
 			eval S${line}='${s}'
-			echo "error in interval ${i}, end hour"
+			echo "Err: error in interval ${i}, end hour"
 			Err="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
@@ -363,13 +365,12 @@ VerifyData() {
 			si="${si}${s}h"
 		let "line++,1"
 		if s="$(_natural)" && [ ${s} -lt 60 ]; then
-			se=$((se*60+s))
-			let "S${line}=s,1"
+			let "se=se*60+s,S${line}=s,1"
 			[ $((S${line})) -gt 0 ] || \
 				eval "S${line}="
 		else
 			eval S${line}='${s}'
-			echo "error in interval ${i}, end minute"
+			echo "Err: error in interval ${i}, end minute"
 			Err="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
@@ -377,18 +378,23 @@ VerifyData() {
 			si="${si}${s}m"
 		let "line++,1"
 		if s="$(_natural)" && [ ${s} -lt 60 ]; then
-			se=$((se*60+s))
-			let "S${line}=s,1"
+			let "se=se*60+s,S${line}=s,1"
 		else
 			eval S${line}='${s}'
-			echo "error in interval ${i}, end second"
+			echo "Err: error in interval ${i}, end second"
 			Err="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
 		[ "${s}" = "0" ] || \
 			si="${si}${s}s"
-		[ ${si: -1} != "-" ] || \
+		[ "${si: -1}" != "-" ] || \
 			si="${si}0"
+
+		[ ${durationSeconds} -ne 0 ] || {
+			echo "${si} from ${ss} to ${se}"
+			continue
+		}
+
 		recTime=0
 		recLength=0
 		if [ ${se} -gt $((durationSeconds)) ]; then
@@ -396,11 +402,11 @@ VerifyData() {
 			Err="y"
 		elif [ ${ss} -lt ${se} ]; then
 			Intervals="${Intervals}${i} "
-			let "Is${i}=ss,1"
-			let "Ie${i}=(se == durationSeconds ? se+1 : se),1"
-			recTime=$((Ie${i}-Is${i}))
+			let "Is${i}=ss,\
+				Ie${i}=(se == durationSeconds ? se+1 : se),\
+				recTime=Ie${i}-Is${i},1"
 			[ ${durationSeconds} -eq 0 ] || \
-				recLength=$((recTime*size/durationSeconds))
+				let "recLength=recTime*size/durationSeconds,1"
 			let "Il${i}=recLength,1"
 		elif [ ${ss} -ne 0 -o ${se} -ne 0 ]; then
 			si="${si} invalid"
@@ -410,8 +416,8 @@ VerifyData() {
 			test ${recLength} -eq 0 || \
 				echo ", downloading $(_thsSep ${recTime}) seconds," \
 					"$(_thsSep ${recLength}) bytes")"
-		Ts=$((Ts+recTime))
-		Tl=$((Tl+recLength))
+		let "Ts=Ts+recTime,\
+			Tl=Tl+recLength,1"
 	done
 
 	if [ -n "${Intervals}" ]; then
@@ -419,7 +425,7 @@ VerifyData() {
 			test ${Tl} -eq 0 || \
 				echo ", $(_thsSep ${Tl}) bytes")"
 	else
-		echo "have not defined any interval"
+		echo "Err: have not defined any interval"
 		Err="y"
 	fi
 	[ -z "${Err}" ] || {
@@ -497,6 +503,7 @@ Main() {
 		exec > "${Msgs}"
 		VerifyData
 		eval exec "1>&${StdOut}" "${StdOut}>&-"
+		rm -f "${Msgs}.bak"
 	done
 
 	Title="${Title}-${MyId}.mpg"
@@ -506,7 +513,7 @@ Main() {
 	if [ $(echo "${Intervals}" | wc -w) -eq 1 ]; then
 		VlcGet "${VideoUrl}" "${Title}" $((Is${Intervals})) \
 		$((Ie${Intervals})) $((Il${Intervals})) || \
-			echo "error in vlc download"
+			echo "Err: error in vlc download"
 	else
 		files="${TmpDir}files.txt"
 		: > "${files}"
@@ -515,7 +522,7 @@ Main() {
 			title="${TmpDir}${i}.mpg"
 			if ! VlcGet "${VideoUrl}" "${title}" $((Is${i})) \
 			$((Ie${i})) $((Il${i})); then
-				echo "error in vlc download"
+				echo "Err: error in vlc download"
 				Err="y"
 			fi
 			echo "file '$(basename "${title}")'" >> "${files}"
@@ -528,7 +535,7 @@ Main() {
 			-c:v copy "${CurrDir}${Title}" \
 			> "${TmpDir}${Title}.txt" 2>&1
 			); then
-				echo "error in video concatenation"
+				echo "Err: error in video concatenation"
 			fi
 			if [ -s "${CurrDir}${Title}" ]; then
 				length=$(_fileSize "${CurrDir}${Title}")
@@ -538,7 +545,7 @@ Main() {
 		fi
 	fi
 	[ -s "${CurrDir}${Title}" ] || \
-		echo "error in download"
+		echo "Err: error in download"
 	eval exec "1>&${StdOut}" "${StdOut}>&-"
 	clear
 	cat "${Msgs}" >&2
