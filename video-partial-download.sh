@@ -169,7 +169,7 @@ GetDuration() {
 }
 
 VerifyData() {
-	local arg p r s urlPrev line \
+	local arg r s urlPrev line \
 		i j v \
 		recTime recLength duration durationSeconds length
 
@@ -223,8 +223,7 @@ VerifyData() {
 	{ echo '#!/bin/sh'
 		printf '%s %s %s \\\n' "${0}" "'${Url}'" "'${Title}'"
 		r="$(tail -n +3 <<< "${Res}")"
-		while p=$(wc -l <<< "${r}");
-		[ ${p} -gt 0 -a $((p%6)) -eq 0 ]; do
+		while [ $(wc -l <<< "${r}") -ge 6 ]; do
 			s="$(head -n 6 <<< "${r}")"
 			! grep -qsxvF '0' <<< "${s}" || {
 				printf " '"
