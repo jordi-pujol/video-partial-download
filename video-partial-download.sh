@@ -263,12 +263,13 @@ VerifyData() {
 	else
 		if [ "${VideoUrl##*.}" = "m3u8" ]; then
 			m3u8="${TmpDir}$(basename "${VideoUrl}")"
-			wget -O "${m3u8}" "${VideoUrl}" > "${m3u8}.txt" 2>&1
-			if d=$(sed -nre \
-			'/^#EXT-X-TWITCH-TOTAL-SECS:([[:digit:].]+).*/{s//\1/;s/\.//;p;q}
+			LANGUAGE=C wget -O "${m3u8}" "${VideoUrl}" > "${m3u8}.txt" 2>&1
+			if partd=$(sed -nre '/^#EXTINF:([[:digit:].]+).*/{s//\1/;s/\.//;p;q}
 			${q1}' "${m3u8}") && \
-			partd=$(sed -nre '/^#EXTINF:([[:digit:].]+).*/{s//\1/;s/\.//;p;q}
-			${q1}' "${m3u8}"); then
+			( [ -n "${duration}" ] || \
+			d=$(sed -nre \
+			'/^#.*-TOTAL-SECS:([[:digit:].]+).*/{s//\1/;s/\.//;p;q}
+			${q1}' "${m3u8}") ); then
 				[ -z "${duration}" ] && \
 					duration="$(TimeStamp $((d/1000)))" || \
 					let "d=$(SecondsFromTimestamp "${duration}")*1000,1"
