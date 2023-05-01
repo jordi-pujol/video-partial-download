@@ -128,6 +128,31 @@ VlcGet() {
 		echo "Warn: download file \"${title}\" is too short"
 }
 
+GetSize() {
+	local url="${1}" \
+		size=""
+	if [ -s "${url}" ]; then
+		size=$(_fileSize "${url}")
+	elif size=$( options="$(! set | \
+		grep -qsEe 'PROXY=.*(localhost|127\.0\.0\.1)' || {
+			printf "%s " "--noproxy"
+			sed -e 's/[^/]*\/\/\([^@]*@\)\?\([^:/]*\).*/\2/' <<< "${url}"
+		})"
+	LANGUAGE=C \
+	curl -sGI ${options} "${url}" 2>&1 | \
+	sed -nre '/^[Cc]ontent-[Ll]ength: ([[:digit:]]+).*/{s//\1/;p;q0};${q1}'); then
+		:
+	elif size=$(LANGUAGE=C \
+	wget --verbose --spider -T 7 \
+	--no-check-certificate "${url}" 2>&1 | \
+	sed -nre '/^Length: ([[:digit:]]+).*/{s//\1/;p;q};${q1}'); then
+		:
+	else
+		return 1
+	fi
+	printf '%d\n' ${size}
+}
+
 GetDuration() {
 	local r
 	r="$(LANGUAGE=C \
@@ -229,37 +254,40 @@ VerifyData() {
 		duration="$(GetDuration)"
 	fi
 	size=0
+	ext=""
 	if [ -z "${VideoUrl}" ]; then
 		duration="0:0:0"
 		durationSeconds=0
 		echo "this URL is invalid"
 		Err="y"
 	else
+		if [ "${VideoUrl##*.}" = "m3u8" ]; then
+			m3u8="${TmpDir}$(basename "${VideoUrl}")"
+			wget -O "${m3u8}" "${VideoUrl}" > "${m3u8}.txt" 2>&1
+			if d=$(sed -nre \
+			'/^#EXT-X-TWITCH-TOTAL-SECS:([[:digit:].]+).*/{s//\1/;s/\.//;p;q}
+			${q1}' "${m3u8}"); then
+				[ -z "${duration}" ] && \
+					duration="$(TimeStamp $((d/1000)))" || \
+					let "d=$(SecondsFromTimestamp "${duration}")*1000,1"
+				partd=$(sed -nre '/^#EXTINF:([[:digit:].]+).*/{s//\1/;s/\.//;p;q}
+				${q1}' "${m3u8}")
+				partn="$(sed -nre '/^#EXTINF:[[:digit:].]+.*/{n;p;q}' "${m3u8}")"
+				ext="${partn##*.}"
+				size=$(GetSize "$(dirname "${VideoUrl}")/${partn}")
+				let "size=size*d/partd,1"
+				echo "Warn: size of m3u8 videos is approximated"
+			fi
+		fi
+		[ ${size:=0} -ne 0 ] || \
+			size=$(GetSize "${VideoUrl}")
+
 		duration="${duration:-"100:0:0"}"
+		durationSeconds="$(SecondsFromTimestamp "${duration}")"
 		[ "${VideoUrl}" = "${Url}" ] || \
 			echo "Real video URL is \"${VideoUrl}\""
-		durationSeconds="$(SecondsFromTimestamp "${duration}")"
 		echo "video duration is \"${duration}\"," \
 			"$(_thsSep ${durationSeconds}) seconds"
-		# size
-		if [ -s "${VideoUrl}" ]; then
-			size="$(_fileSize "${VideoUrl}")"
-		elif size="$(
-		options="$(! set | \
-			grep -qsEe 'PROXY=.*(localhost|127\.0\.0\.1)' || {
-				printf "%s " "--noproxy"
-				sed -e 's/[^/]*\/\/\([^@]*@\)\?\([^:/]*\).*/\2/' <<< "${VideoUrl}"
-			})"
-		LANGUAGE=C \
-		curl -sGI ${options} "${VideoUrl}" 2>&1 | \
-		sed -nre '/^[Cc]ontent-[Ll]ength: ([[:digit:]]+).*/{s//\1/;p;q0};${q1}')"; then
-			:
-		else
-			size="$(LANGUAGE=C \
-				wget --verbose --spider -T 7 \
-				--no-check-certificate "${VideoUrl}" 2>&1 | \
-				sed -nre '/^Length: ([[:digit:]]+).*/{s//\1/;p;q}')" || :
-		fi
 	fi
 
 	[ ${durationSeconds} -ne 0 ] || {
@@ -269,7 +297,9 @@ VerifyData() {
 
 	[ ${size:=0} -eq 0 ] && \
 		echo "Warn: video size is not valid" || \
-		echo "video size is $(_thsSep ${size}) bytes"
+		echo "video size is $(_thsSep ${size}) bytes$(
+		[ ${size} -ge $((durationSeconds*1024)) ] || \
+			echo ", Warn: size is too short")"
 
 # mpeg1 	MPEG-1 multiplexing - recommended for portability. Only works with mp1v video and mpga audio, but works on all known players
 # ts 	MPEG Transport Stream, primarily used for streaming MPEG. Also used in DVDs
@@ -279,7 +309,7 @@ VerifyData() {
 # asf 	ASF
 # dummy 	dummy output, can be used in creation of MP3 files.
 # ogg 	Xiph.org's ogg container format. Can contain audio, video, and metadata
-	ext="${Url##*.}"
+	ext="${ext:-"${VideoUrl##*.}"}"
 	case "${ext}" in
 		mp4) Mux="mp4" ;;
 		*) Mux="ts" ;;
@@ -391,7 +421,7 @@ VerifyData() {
 			si="${si}0"
 
 		[ ${durationSeconds} -ne 0 ] || {
-			echo "${si} from ${ss} to ${se}"
+			echo "${si} from $(_thsSep ${ss}) to $(_thsSep ${se})"
 			continue
 		}
 
@@ -412,7 +442,7 @@ VerifyData() {
 			si="${si} invalid"
 			Err="y"
 		fi
-		echo "${si} from ${ss} to ${se}$( \
+		echo "${si} from $(_thsSep ${ss}) to $(_thsSep ${se})$( \
 			test ${recLength} -eq 0 || \
 				echo ", downloading $(_thsSep ${recTime}) seconds," \
 					"$(_thsSep ${recLength}) bytes")"
