@@ -514,6 +514,7 @@ Main() {
 		--tailboxbg "${Msgs}" 18 172 \
 		--and-widget --begin 0 0 \
 		--title "VLC download video parts" --colors \
+		--ok-label "Download" \
 		--extra-button --extra-label "Info" \
 		--form ' Enter Values, press Enter:' 24 172 20 \
 		'' 1 1 'URL . . . . . >' 1 1 0 0 '' 1 22 "${Url}" 1 22 50 1024 \
