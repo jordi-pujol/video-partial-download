@@ -128,12 +128,12 @@ VlcGet() {
 		echo "Warn: download file \"${title}\" is too short"
 }
 
-GetSize() {
+GetLength() {
 	local url="${1}" \
-		size=""
+		length=""
 	if [ -s "${url}" ]; then
-		size=$(_fileSize "${url}")
-	elif size=$( options="$(! set | \
+		length=$(_fileSize "${url}")
+	elif length=$( options="$(! set | \
 		grep -qsEe 'PROXY=.*(localhost|127\.0\.0\.1)' || {
 			printf "%s " "--noproxy"
 			sed -e 's/[^/]*\/\/\([^@]*@\)\?\([^:/]*\).*/\2/' <<< "${url}"
@@ -142,7 +142,7 @@ GetSize() {
 	curl -sGI ${options} "${url}" 2>&1 | \
 	sed -nre '/^[Cc]ontent-[Ll]ength: ([[:digit:]]+).*/{s//\1/;p;q0};${q1}'); then
 		:
-	elif size=$(LANGUAGE=C \
+	elif length=$(LANGUAGE=C \
 	wget --verbose --spider -T 7 \
 	--no-check-certificate "${url}" 2>&1 | \
 	sed -nre '/^Length: ([[:digit:]]+).*/{s//\1/;p;q};${q1}'); then
@@ -150,7 +150,7 @@ GetSize() {
 	else
 		return 1
 	fi
-	printf '%d\n' ${size}
+	printf '%d\n' ${length}
 }
 
 GetDuration() {
@@ -171,7 +171,7 @@ GetDuration() {
 VerifyData() {
 	local arg p r s urlPrev line \
 		i j v \
-		recTime recLength duration durationSeconds size
+		recTime recLength duration durationSeconds length
 
 	echo "Messages"
 	if [ ${#} -gt 0 ]; then
@@ -253,7 +253,7 @@ VerifyData() {
 	elif VideoUrl="$(yt-dlp "${Url}" --get-url 2> /dev/null)"; then
 		duration="$(GetDuration)"
 	fi
-	size=0
+	length=0
 	Ext=""
 	if [ -z "${VideoUrl}" ]; then
 		duration="0:0:0"
@@ -274,13 +274,13 @@ VerifyData() {
 					let "d=$(SecondsFromTimestamp "${duration}")*1000,1"
 				partn="$(sed -nre '/^#EXTINF:[[:digit:].]+.*/{n;p;q}' "${m3u8}")"
 				Ext="${partn##*.}"
-				size=$(GetSize "$(dirname "${VideoUrl}")/${partn}")
-				let "size=size*d/partd,1"
-				echo "Warn: size of m3u8 videos is approximated"
+				length=$(GetLength "$(dirname "${VideoUrl}")/${partn}")
+				let "length=length*d/partd,1"
+				echo "Warn: length of m3u8 videos is approximated"
 			fi
 		fi
-		[ ${size:=0} -ne 0 ] || \
-			size=$(GetSize "${VideoUrl}")
+		[ ${length:=0} -ne 0 ] || \
+			length=$(GetLength "${VideoUrl}")
 
 		duration="${duration:-"100:0:0"}"
 		durationSeconds="$(SecondsFromTimestamp "${duration}")"
@@ -295,11 +295,11 @@ VerifyData() {
 		Err="y"
 	}
 
-	[ ${size:=0} -eq 0 ] && \
-		echo "Warn: video size is not valid" || \
-		echo "video size is $(_thsSep ${size}) bytes$(
-		[ ${size} -ge $((durationSeconds*1024)) ] || \
-			echo ", Warn: size is too short")"
+	[ ${length:=0} -eq 0 ] && \
+		echo "Warn: video length is not valid" || \
+		echo "video length is $(_thsSep ${length}) bytes$(
+		[ ${length} -ge $((durationSeconds*1024)) ] || \
+			echo ", Warn: length is too short")"
 
 # mpeg1 	MPEG-1 multiplexing - recommended for portability. Only works with mp1v video and mpga audio, but works on all known players
 # ts 	MPEG Transport Stream, primarily used for streaming MPEG. Also used in DVDs
@@ -436,7 +436,7 @@ VerifyData() {
 				Ie${i}=(se == durationSeconds ? se+1 : se),\
 				recTime=Ie${i}-Is${i},1"
 			[ ${durationSeconds} -eq 0 ] || \
-				let "recLength=recTime*size/durationSeconds,1"
+				let "recLength=recTime*length/durationSeconds,1"
 			let "Il${i}=recLength,1"
 		elif [ ${ss} -ne 0 -o ${se} -ne 0 ]; then
 			si="${si} invalid"
