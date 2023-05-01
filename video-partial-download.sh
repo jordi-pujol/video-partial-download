@@ -225,22 +225,22 @@ VerifyData() {
 		r="$(tail -n +3 <<< "${Res}")"
 		while [ $(wc -l <<< "${r}") -ge 6 ]; do
 			s="$(head -n 6 <<< "${r}")"
-			! grep -qsxvF '0' <<< "${s}" || {
-				printf " '"
-				sep=""
-				while read -r v; do
-					printf '%s%s' "${sep}" "${v}"
-					sep=":"
-				done < <(head -n 3 <<< "${s}")
-				printf "-"
-				sep=""
-				while read -r v; do
-					printf '%s%s' "${sep}" "${v}"
-					sep=":"
-				done < <(tail -n +4 <<< "${s}")
-				printf "'"
-			}
 			r="$(tail -n +7 <<< "${r}")"
+			grep -qsxvF '0' <<< "${s}" || \
+				continue
+			printf " '"
+			sep=""
+			while read -r v; do
+				printf '%s%s' "${sep}" "${v}"
+				sep=":"
+			done < <(head -n 3 <<< "${s}")
+			printf "-"
+			sep=""
+			while read -r v; do
+				printf '%s%s' "${sep}" "${v}"
+				sep=":"
+			done < <(tail -n +4 <<< "${s}")
+			printf "'"
 		done
 		echo
 	} > "${TmpDir}cmd.sh"
