@@ -169,7 +169,7 @@ GetDuration() {
 }
 
 VerifyData() {
-	local arg p r s urlPrev line ext \
+	local arg p r s urlPrev line \
 		i j v \
 		recTime recLength duration durationSeconds size
 
@@ -254,7 +254,7 @@ VerifyData() {
 		duration="$(GetDuration)"
 	fi
 	size=0
-	ext=""
+	Ext=""
 	if [ -z "${VideoUrl}" ]; then
 		duration="0:0:0"
 		durationSeconds=0
@@ -266,14 +266,14 @@ VerifyData() {
 			wget -O "${m3u8}" "${VideoUrl}" > "${m3u8}.txt" 2>&1
 			if d=$(sed -nre \
 			'/^#EXT-X-TWITCH-TOTAL-SECS:([[:digit:].]+).*/{s//\1/;s/\.//;p;q}
+			${q1}' "${m3u8}") && \
+			partd=$(sed -nre '/^#EXTINF:([[:digit:].]+).*/{s//\1/;s/\.//;p;q}
 			${q1}' "${m3u8}"); then
 				[ -z "${duration}" ] && \
 					duration="$(TimeStamp $((d/1000)))" || \
 					let "d=$(SecondsFromTimestamp "${duration}")*1000,1"
-				partd=$(sed -nre '/^#EXTINF:([[:digit:].]+).*/{s//\1/;s/\.//;p;q}
-				${q1}' "${m3u8}")
 				partn="$(sed -nre '/^#EXTINF:[[:digit:].]+.*/{n;p;q}' "${m3u8}")"
-				ext="${partn##*.}"
+				Ext="${partn##*.}"
 				size=$(GetSize "$(dirname "${VideoUrl}")/${partn}")
 				let "size=size*d/partd,1"
 				echo "Warn: size of m3u8 videos is approximated"
@@ -309,8 +309,8 @@ VerifyData() {
 # asf 	ASF
 # dummy 	dummy output, can be used in creation of MP3 files.
 # ogg 	Xiph.org's ogg container format. Can contain audio, video, and metadata
-	ext="${ext:-"${VideoUrl##*.}"}"
-	case "${ext}" in
+	Ext="${Ext:-"${VideoUrl##*.}"}"
+	case "${Ext}" in
 		mp4) Mux="mp4" ;;
 		*) Mux="ts" ;;
 	esac
@@ -472,7 +472,7 @@ Main() {
 	readonly Msgs="${TmpDir}msgs.txt"
 
 	local Url="" Title="" VideoUrl StdOut \
-		Res ResOld Err Mux \
+		Res ResOld Err Ext Mux \
 		Sh Sm Ss \
 		S1="" S2="" S3="0" \
 		S4="" S5="" S6="0" \
@@ -536,7 +536,7 @@ Main() {
 		rm -f "${Msgs}.bak"
 	done
 
-	Title="${Title}-${MyId}.mpg"
+	Title="${Title}-${MyId}.${Ext}"
 	exec {StdOut}>&1
 	exec > >(tee -a "${Msgs}")
 
@@ -549,7 +549,7 @@ Main() {
 		: > "${files}"
 		Err=""
 		for i in ${Intervals}; do
-			title="${TmpDir}${i}.mpg"
+			title="${TmpDir}${i}.${Ext}"
 			if ! VlcGet "${VideoUrl}" "${title}" $((Is${i})) \
 			$((Ie${i})) $((Il${i})); then
 				echo "Err: error in vlc download"
