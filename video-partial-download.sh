@@ -45,7 +45,7 @@ SecondsFromTimestamp() {
 		h*) factor=3600 ;;
 		d*) factor=86400 ;;
 		0) : ;;
-		[[:digit:]]*) let "time=time+factor*word,1" ;;
+		[[:digit:]]*) let "time+=factor*word,1" ;;
 		*) return 1 ;;
 		esac
 	done < <(sed -re ':a' \
@@ -189,8 +189,8 @@ GetDataM3u8() {
 			partn="$(dirname "${url}")/${partn}"
 		fi
 		[ -n "${duration}" ] || \
-			let "dT=${dT}+$(SecondsFromTimestamp "$(GetDuration "${partn}")"),1"
-		let "length=length+$(GetLength "${partn}"),1"
+			let "dT+=$(SecondsFromTimestamp "$(GetDuration "${partn}")"),1"
+		let "length+=$(GetLength "${partn}"),1"
 	done < <(sed -nre '/^#EXTINF:[[:digit:].]+.*/{n;p}' "${m3u8}")
 	[ -n "${duration}" ] || \
 		duration="$(TimeStamp ${dT})"
@@ -469,8 +469,8 @@ VerifyData() {
 			test ${recLength} -eq 0 || \
 				echo ", downloading $(_thsSep ${recTime}) seconds," \
 					"$(_thsSep ${recLength}) bytes")"
-		let "Ts=Ts+recTime,\
-			Tl=Tl+recLength,1"
+		let "Ts+=recTime,\
+			Tl+=recLength,1"
 	done
 
 	if [ -n "${Intervals}" ]; then
