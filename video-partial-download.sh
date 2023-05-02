@@ -187,7 +187,7 @@ GetDataM3u8() {
 			partn="$(dirname "${url}")/${partn}"
 		fi
 		[ -n "${duration}" ] || \
-			let "dT=${dT}+$(GetDuration "${partn}"),1"
+			let "dT=${dT}+$(SecondsFromTimestamp "$(GetDuration "${partn}")"),1"
 		let "length=length+$(GetLength "${partn}"),1"
 	done < <(sed -nre '/^#EXTINF:[[:digit:].]+.*/{n;p}' "${m3u8}")
 	[ -n "${duration}" ] || \
