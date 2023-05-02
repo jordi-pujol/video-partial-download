@@ -154,10 +154,14 @@ GetLength() {
 }
 
 GetDuration() {
-	local r
-	r="$(LANGUAGE=C \
-	ffmpeg -nostdin -hide_banner -y -i "${VideoUrl:-"${Url}"}" 2>&1 | \
-	sed -n '/^Input #0/,/^At least one/ {/^[^A]/p}')"
+	local url="${1}"
+	sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{
+	s//\1/;p;q}
+	${q1}' < <(LANGUAGE=C \
+	ffmpeg -nostdin -hide_banner -y -i "${url}" 2>&1 | \
+	sed -n '/^Input #0/,/^At least one/ {/^[^A]/p}') || \
+		return 1
+}
 
 	printf '%s\n' "${r}" | \
 	sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{s//\1/;p;q};${q1}' || {
@@ -247,10 +251,10 @@ VerifyData() {
 	tail -n +2 "${TmpDir}cmd.sh"
 
 	VideoUrl=""
-	if duration="$(GetDuration)"; then
+	if duration="$(GetDuration "${Url}")"; then
 		VideoUrl="${Url}"
 	elif VideoUrl="$(yt-dlp "${Url}" --get-url 2> /dev/null)"; then
-		duration="$(GetDuration)"
+		duration="$(GetDuration "${VideoUrl}")" || :
 	fi
 	length=0
 	Ext=""
