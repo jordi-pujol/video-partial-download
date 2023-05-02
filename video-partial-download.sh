@@ -154,13 +154,15 @@ GetLength() {
 }
 
 GetDuration() {
-	local url="${1}"
-	LANGUAGE=C \
-	ffmpeg -nostdin -hide_banner -y -i "${url}" 2>&1 | \
-	sed -n '/^Input #0/,/^At least one/ {/^[^A]/p}' | \
-	sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{
-	s//\1/;p;q}
-	${q1}' || \
+	local url="${1}" \
+		d
+	d="$(set +o pipefail
+		LANGUAGE=C \
+		ffmpeg -nostdin -hide_banner -y -i "${url}" 2>&1 | \
+		sed -n '/^Input #0/,/^At least one/ {/^[^A]/p}' | \
+		sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{s//\1/;p;q}')" || :
+	[ -n "${d}" ] && \
+		printf '%s\n' "${d}" || \
 		return 1
 }
 
@@ -247,7 +249,7 @@ VerifyData() {
 	}
 	ResOld="${Res}"
 	{ echo '#!/bin/sh'
-		printf '%s %s %s \\\n' "${0}" "'${Url}'" "'${Title}'"
+		printf '"%s" \\\n' "${0}" "${Url}" "${Title}"
 		r="$(tail -n +3 <<< "${Res}")"
 		while [ $(wc -l <<< "${r}") -ge 6 ]; do
 			s="$(head -n 6 <<< "${r}")"
@@ -279,19 +281,21 @@ VerifyData() {
 		duration="$(GetDuration "${VideoUrl}")" || :
 	fi
 	length=0
-	Ext=""
 	if [ -z "${VideoUrl}" ]; then
 		duration="0:0:0"
 		durationSeconds=0
 		echo "this URL is invalid"
 		Err="y"
+		Ext=""
 	else
 		[ "${VideoUrl}" = "${Url}" ] || \
-			echo "Real video URL is \"${VideoUrl}\""
+			printf '%s\n' "Real video URL is:" \
+				"\"${VideoUrl}\""
 		if [ "${VideoUrl}" = "${VideoUrlOld}" ]; then
 			length=${lengthOld}
 			duration="${durationOld}"
 		else
+			Ext=""
 			[ "${VideoUrl##*.}" != "m3u8" ] || \
 				GetDataM3u8 "${VideoUrl}" || :
 
