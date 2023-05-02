@@ -288,13 +288,22 @@ VerifyData() {
 	else
 		[ "${VideoUrl}" = "${Url}" ] || \
 			echo "Real video URL is \"${VideoUrl}\""
-		[ "${VideoUrl##*.}" != "m3u8" ] || \
-			GetDataM3u8 "${VideoUrl}" || :
+		if [ "${VideoUrl}" = "${VideoUrlOld}" ]; then
+			length=${lengthOld}
+			duration="${durationOld}"
+		else
+			[ "${VideoUrl##*.}" != "m3u8" ] || \
+				GetDataM3u8 "${VideoUrl}" || :
 
-		[ ${length:=0} -ne 0 ] || \
-			length=$(GetLength "${VideoUrl}")
+			[ ${length:=0} -ne 0 ] || \
+				length=$(GetLength "${VideoUrl}")
 
-		duration="${duration:-"100:0:0"}"
+			duration="${duration:-"100:0:0"}"
+
+			VideoUrlOld="${VideoUrl}"
+			lengthOld=${length}
+			durationOld="${duration}"
+		fi
 		durationSeconds="$(SecondsFromTimestamp "${duration}")"
 		echo "video duration is \"${duration}\"," \
 			"$(_thsSep ${durationSeconds}) seconds"
@@ -481,7 +490,8 @@ Main() {
 	readonly TmpDir="${CurrDir}tmp-${MyId}/"
 	readonly Msgs="${TmpDir}msgs.txt"
 
-	local Url="" Title="" VideoUrl StdOut \
+	local Url="" Title="" StdOut \
+		VideoUrl VideoUrlOld durationOld lengthOld \
 		Res ResOld Err Ext Mux \
 		Sh Sm Ss \
 		S1="" S2="" S3="0" \
@@ -510,8 +520,11 @@ Main() {
 
 	Res=""
 	ResOld=""
+	VideoUrlOld=""
+	lengthOld=0
+	durationOld=""
 	exec {StdOut}>&1
-	exec > "${Msgs}"
+	exec > >(tee "${Msgs}")
 	VerifyData "${@}"
 	eval exec "1>&${StdOut}" "${StdOut}>&-"
 	Err="y"
@@ -541,7 +554,7 @@ Main() {
 		tail -n +2 "${Msgs}" > "${Msgs}.bak"
 		exec {StdOut}>&1
 		rm -f "${Msgs}"
-		exec > "${Msgs}"
+		exec > >(tee "${Msgs}")
 		VerifyData
 		eval exec "1>&${StdOut}" "${StdOut}>&-"
 		rm -f "${Msgs}.bak"
