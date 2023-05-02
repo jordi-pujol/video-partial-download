@@ -155,21 +155,43 @@ GetLength() {
 
 GetDuration() {
 	local url="${1}"
+	LANGUAGE=C \
+	ffmpeg -nostdin -hide_banner -y -i "${url}" 2>&1 | \
+	sed -n '/^Input #0/,/^At least one/ {/^[^A]/p}' | \
 	sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{
 	s//\1/;p;q}
-	${q1}' < <(LANGUAGE=C \
-	ffmpeg -nostdin -hide_banner -y -i "${url}" 2>&1 | \
-	sed -n '/^Input #0/,/^At least one/ {/^[^A]/p}') || \
+	${q1}' || \
 		return 1
 }
 
-	printf '%s\n' "${r}" | \
-	sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{s//\1/;p;q};${q1}' || {
-		echo "100:0:0"
-		[ -n "${VideoUrl}" ] || \
-		printf '%s\n' "${r}" | grep -qsie 'Stream.*Video:' || \
-			return 1
-	}
+GetDataM3u8() {
+	local url="${1}" \
+		m3u8 partn dT=0 \
+		regex='^(https?|ftp|file)://[-A-Za-z0-9\+&@#/%?=~_|!:,.;]*[-A-Za-z0-9\+&@#/%=~_|]$'
+	echo "Computing length and duration of a m3u8 video list"
+	m3u8="${TmpDir}$(basename "${url}")"
+	LANGUAGE=C wget -O "${m3u8}" "${url}" > "${m3u8}.txt" 2>&1 && \
+	sed -ne '1{/^#EXTM3U$/!q1;q}' "${m3u8}" || \
+		return 1
+	if [ -z "${duration}" ]; then
+		dT=$(sed -nre \
+		'/^#.*-TOTAL-SECS:([[:digit:]]+).*/{s//\1/;p;q}
+		${q1}' "${m3u8}") && \
+			duration="$(TimeStamp ${dT})" || \
+			dT=0
+	fi
+	length=0
+	while read -r partn; do
+		Ext="${Ext:-"${partn##*.}"}"
+		if [[ !($partn =~ $regex) ]]; then
+			partn="$(dirname "${url}")/${partn}"
+		fi
+		[ -n "${duration}" ] || \
+			let "dT=${dT}+$(GetDuration "${partn}"),1"
+		let "length=length+$(GetLength "${partn}"),1"
+	done < <(sed -nre '/^#EXTINF:[[:digit:].]+.*/{n;p}' "${m3u8}")
+	[ -n "${duration}" ] || \
+		duration="$(TimeStamp ${dT})"
 }
 
 VerifyData() {
@@ -264,32 +286,16 @@ VerifyData() {
 		echo "this URL is invalid"
 		Err="y"
 	else
-		if [ "${VideoUrl##*.}" = "m3u8" ]; then
-			m3u8="${TmpDir}$(basename "${VideoUrl}")"
-			LANGUAGE=C wget -O "${m3u8}" "${VideoUrl}" > "${m3u8}.txt" 2>&1
-			if partd=$(sed -nre '/^#EXTINF:([[:digit:].]+).*/{s//\1/;s/\.//;p;q}
-			${q1}' "${m3u8}") && \
-			( [ -n "${duration}" ] || \
-			d=$(sed -nre \
-			'/^#.*-TOTAL-SECS:([[:digit:].]+).*/{s//\1/;s/\.//;p;q}
-			${q1}' "${m3u8}") ); then
-				[ -z "${duration}" ] && \
-					duration="$(TimeStamp $((d/1000)))" || \
-					let "d=$(SecondsFromTimestamp "${duration}")*1000,1"
-				partn="$(sed -nre '/^#EXTINF:[[:digit:].]+.*/{n;p;q}' "${m3u8}")"
-				Ext="${partn##*.}"
-				length=$(GetLength "$(dirname "${VideoUrl}")/${partn}")
-				let "length=length*d/partd,1"
-				echo "Warn: length of m3u8 videos is approximated"
-			fi
-		fi
+		[ "${VideoUrl}" = "${Url}" ] || \
+			echo "Real video URL is \"${VideoUrl}\""
+		[ "${VideoUrl##*.}" != "m3u8" ] || \
+			GetDataM3u8 "${VideoUrl}" || :
+
 		[ ${length:=0} -ne 0 ] || \
 			length=$(GetLength "${VideoUrl}")
 
 		duration="${duration:-"100:0:0"}"
 		durationSeconds="$(SecondsFromTimestamp "${duration}")"
-		[ "${VideoUrl}" = "${Url}" ] || \
-			echo "Real video URL is \"${VideoUrl}\""
 		echo "video duration is \"${duration}\"," \
 			"$(_thsSep ${durationSeconds}) seconds"
 	fi
