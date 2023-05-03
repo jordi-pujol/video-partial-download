@@ -128,11 +128,43 @@ VlcGet() {
 		echo "Warn: download file \"${title}\" is too short"
 }
 
+GetDuration() {
+	local url="${1}"
+	LANGUAGE=C \
+	ffprobe -hide_banner -i "${url}" 2>&1 | \
+		sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{
+		s//\1/;p;q}
+		${q1}'
+}
+
+GetLengthM3u8() {
+	local url="${1}" \
+		length partn dT=0
+	LANGUAGE=C wget -O - "${url}" 2> "${TmpDir}$(basename "${url}").txt" | \
+	sed -ne '1{/^#EXTM3U$/!q1;q}' || \
+		return 1
+	dT=0
+	length=0
+	while read -r partn; do
+		Ext="${Ext:-"${partn##*.}"}"
+		let "dT+=$(SecondsFromTimestamp "$(GetDuration "${partn}")"),1"
+		let "length+=$(GetLength "${partn}"),1"
+	done < <(LANGUAGE=C \
+	ffprobe -hide_banner -i "${url}" 2>&1 | \
+	sed -nre "/.*Opening '(.*)' for reading.*/{s//\1/;p}")
+	[ ${dT} -gt 0 ] || \
+		return 1
+	printf '%d\n' $(($(SecondsFromTimestamp ${duration})*length/dT))
+}
+
 GetLength() {
 	local url="${1}" \
 		length=""
 	if [ -s "${url}" ]; then
 		length=$(_fileSize "${url}")
+	elif [ "${url##*.}" = "m3u8" ] && \
+	length="$(GetLengthM3u8 "${url}")"; then
+		:
 	elif length=$(LANGUAGE=C \
 	wget --verbose --spider -T 7 \
 	--no-check-certificate "${url}" 2>&1 | \
@@ -151,45 +183,6 @@ GetLength() {
 		return 1
 	fi
 	printf '%d\n' ${length}
-}
-
-GetDuration() {
-	local url="${1}"
-	LANGUAGE=C \
-	ffprobe -hide_banner -i "${url}" 2>&1 | \
-		sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{
-		s//\1/;p;q}
-		${q1}'
-}
-
-GetDataM3u8() {
-	local url="${1}" \
-		m3u8 partn dT=0 \
-		regex='^(https?|ftp)://[-A-Za-z0-9\+&@#/%?=~_|!:,.;]*[-A-Za-z0-9\+&@#/%=~_|]$'
-	echo "Computing length and duration of a m3u8 video list"
-	m3u8="${TmpDir}$(basename "${url}")"
-	LANGUAGE=C wget -O "${m3u8}" "${url}" > "${m3u8}.txt" 2>&1 && \
-	sed -ne '1{/^#EXTM3U$/!q1;q}' "${m3u8}" || \
-		return 1
-	if [ -z "${duration}" ]; then
-		dT=$(sed -nre \
-		'/^#.*-TOTAL-SECS:([[:digit:]]+).*/{s//\1/;p;q}
-		${q1}' "${m3u8}") && \
-			duration="$(TimeStamp ${dT})" || \
-			dT=0
-	fi
-	length=0
-	while read -r partn; do
-		Ext="${Ext:-"${partn##*.}"}"
-		if [[ !($partn =~ $regex) ]]; then
-			partn="$(dirname "${url}")/${partn}"
-		fi
-		[ -n "${duration}" ] || \
-			let "dT+=$(SecondsFromTimestamp "$(GetDuration "${partn}")"),1"
-		let "length+=$(GetLength "${partn}"),1"
-	done < <(sed -nre '/^#EXTINF:[[:digit:].]+.*/{n;p}' "${m3u8}")
-	[ -n "${duration}" ] || \
-		duration="$(TimeStamp ${dT})"
 }
 
 VerifyData() {
@@ -292,8 +285,6 @@ VerifyData() {
 			duration="${durationOld}"
 		else
 			Ext=""
-			[ "${VideoUrl##*.}" != "m3u8" ] || \
-				GetDataM3u8 "${VideoUrl}" || :
 
 			[ ${length:=0} -ne 0 ] || \
 				length=$(GetLength "${VideoUrl}")
