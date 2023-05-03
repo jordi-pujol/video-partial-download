@@ -160,11 +160,11 @@ GetLengthM3u8() {
 GetLength() {
 	local url="${1}" \
 		length=""
-	if [ -s "${url}" ]; then
-		length=$(_fileSize "${url}")
-	elif [ "${url##*.}" = "m3u8" ] && \
+	if [ "${url##*.}" = "m3u8" ] && \
 	length="$(GetLengthM3u8 "${url}")"; then
 		:
+	elif [ -s "${url}" ]; then
+		length=$(_fileSize "${url}")
 	elif length=$(LANGUAGE=C \
 	wget --verbose --spider -T 7 \
 	--no-check-certificate "${url}" 2>&1 | \
