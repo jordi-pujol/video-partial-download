@@ -39,7 +39,7 @@ SecondsFromTimestamp() {
 	while read -r word; do
 		case "${word,,}" in
 		"") : ;;
-		:) let "factor=(factor < 3600 ? factor*60 : factor*24),1" ;;
+		:) let "factor*=(factor < 3600 ? 60 : 24),1" ;;
 		s*) factor=1 ;;
 		m*) factor=60 ;;
 		h*) factor=3600 ;;
@@ -123,7 +123,7 @@ VlcGet() {
 		return 1
 	fi
 	length=$(_fileSize "${title}")
-	echo "length of \"${title}\" is $(_thsSep ${length}) bytes"
+	echo "length of \"${title}\": $(_thsSep ${length}) bytes"
 	[ ${length} -ge $((lengthAprox*90/100)) ] || \
 		echo "Warn: download file \"${title}\" is too short"
 }
@@ -133,6 +133,11 @@ GetLength() {
 		length=""
 	if [ -s "${url}" ]; then
 		length=$(_fileSize "${url}")
+	elif length=$(LANGUAGE=C \
+	wget --verbose --spider -T 7 \
+	--no-check-certificate "${url}" 2>&1 | \
+	sed -nre '/^Length: ([[:digit:]]+).*/{s//\1/;p;q};${q1}'); then
+		:
 	elif length=$( options="$(! set | \
 		grep -qsEe 'PROXY=.*(localhost|127\.0\.0\.1)' || {
 			printf "%s " "--noproxy"
@@ -142,11 +147,6 @@ GetLength() {
 	curl -sGI ${options} "${url}" 2>&1 | \
 	sed -nre '/^[Cc]ontent-[Ll]ength: ([[:digit:]]+).*/{s//\1/;p;q0};${q1}'); then
 		:
-	elif length=$(LANGUAGE=C \
-	wget --verbose --spider -T 7 \
-	--no-check-certificate "${url}" 2>&1 | \
-	sed -nre '/^Length: ([[:digit:]]+).*/{s//\1/;p;q};${q1}'); then
-		:
 	else
 		return 1
 	fi
@@ -154,22 +154,18 @@ GetLength() {
 }
 
 GetDuration() {
-	local url="${1}" \
-		d
-	d="$(set +o pipefail
-		LANGUAGE=C \
-		ffmpeg -nostdin -hide_banner -y -i "${url}" 2>&1 | \
-		sed -n '/^Input #0/,/^At least one/ {/^[^A]/p}' | \
-		sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{s//\1/;p;q}')" || :
-	[ -n "${d}" ] && \
-		printf '%s\n' "${d}" || \
-		return 1
+	local url="${1}"
+	LANGUAGE=C \
+	ffprobe -hide_banner -i "${url}" 2>&1 | \
+		sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{
+		s//\1/;p;q}
+		${q1}'
 }
 
 GetDataM3u8() {
 	local url="${1}" \
 		m3u8 partn dT=0 \
-		regex='^(https?|ftp|file)://[-A-Za-z0-9\+&@#/%?=~_|!:,.;]*[-A-Za-z0-9\+&@#/%=~_|]$'
+		regex='^(https?|ftp)://[-A-Za-z0-9\+&@#/%?=~_|!:,.;]*[-A-Za-z0-9\+&@#/%=~_|]$'
 	echo "Computing length and duration of a m3u8 video list"
 	m3u8="${TmpDir}$(basename "${url}")"
 	LANGUAGE=C wget -O "${m3u8}" "${url}" > "${m3u8}.txt" 2>&1 && \
@@ -289,7 +285,7 @@ VerifyData() {
 		Ext=""
 	else
 		[ "${VideoUrl}" = "${Url}" ] || \
-			printf '%s\n' "Real video URL is:" \
+			printf '%s\n' "Real video URL:" \
 				"\"${VideoUrl}\""
 		if [ "${VideoUrl}" = "${VideoUrlOld}" ]; then
 			length=${lengthOld}
@@ -309,7 +305,7 @@ VerifyData() {
 			durationOld="${duration}"
 		fi
 		durationSeconds="$(SecondsFromTimestamp "${duration}")"
-		echo "video duration is \"${duration}\"," \
+		echo "video duration: ${duration}," \
 			"$(_thsSep ${durationSeconds}) seconds"
 	fi
 
@@ -320,7 +316,7 @@ VerifyData() {
 
 	[ ${length:=0} -eq 0 ] && \
 		echo "Warn: video length is not valid" || \
-		echo "video length is $(_thsSep ${length}) bytes$(
+		echo "video length: $(_thsSep ${length}) bytes$(
 		[ ${length} -ge $((durationSeconds*1024)) ] || \
 			echo ", Warn: length is too short")"
 
@@ -334,7 +330,7 @@ VerifyData() {
 # ogg 	Xiph.org's ogg container format. Can contain audio, video, and metadata
 	Ext="${Ext:-"${VideoUrl##*.}"}"
 	case "${Ext}" in
-		mp4) Mux="mp4" ;;
+		mp4|ps) Mux="${Ext}" ;;
 		*) Mux="ts" ;;
 	esac
 
@@ -597,7 +593,7 @@ Main() {
 			fi
 			if [ -s "${CurrDir}${Title}" ]; then
 				length=$(_fileSize "${CurrDir}${Title}")
-				echo "length of \"${CurrDir}${Title}\" is" \
+				echo "length of \"${CurrDir}${Title}\":" \
 					"$(_thsSep ${length}) bytes"
 			fi
 		fi
