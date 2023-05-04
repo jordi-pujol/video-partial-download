@@ -139,37 +139,40 @@ GetDuration() {
 
 GetLengthM3u8() {
 	local url="${1}" \
-		length partn dT=0
+		partn lT dT
 	LANGUAGE=C wget -O - "${url}" 2> "${TmpDir}$(basename "${url}").txt" | \
 	sed -ne '1{/^#EXTM3U$/!q1;q}' || \
 		return 1
+	echo "Computing length of \"${url}\""
 	dT=0
-	length=0
+	lT=0
 	while read -r partn; do
 		Ext="${Ext:-"${partn##*.}"}"
 		let "dT+=$(SecondsFromTimestamp "$(GetDuration "${partn}")"),1"
-		let "length+=$(GetLength "${partn}"),1"
-	done < <(LANGUAGE=C \
+		let "lT+=$(length=""
+			GetLength "${partn}" 1>&2
+			echo ${length}),1"
+	done 2>&1 < <(LANGUAGE=C \
 	ffprobe -hide_banner -i "${url}" 2>&1 | \
 	sed -nre "/.*Opening '(.*)' for reading.*/{s//\1/;p}")
-	[ ${dT} -gt 0 ] || \
+
+	[ ${dT} -gt 0 ] || {
+		echo "length of \"${url}\" not found"
 		return 1
-	printf '%d\n' $(($(SecondsFromTimestamp ${duration})*length/dT))
+	}
+	length=$(($(SecondsFromTimestamp ${duration})*lT/dT))
 }
 
 GetLength() {
-	local url="${1}" \
-		length=""
-	if [ "${url##*.}" = "m3u8" ] && \
-	length="$(GetLengthM3u8 "${url}")"; then
-		:
-	elif [ -s "${url}" ]; then
+	local url="${1}"
+	if [ -s "${url}" ]; then
 		length=$(_fileSize "${url}")
+		echo "Length of \"${url}\"=${length}, local file"
 	elif length=$(LANGUAGE=C \
 	wget --verbose --spider -T 7 \
 	--no-check-certificate "${url}" 2>&1 | \
 	sed -nre '/^Length: ([[:digit:]]+).*/{s//\1/;p;q};${q1}'); then
-		:
+		echo "Length of \"${url}\"=${length}, usign wget"
 	elif length=$( options="$(! set | \
 		grep -qsEe 'PROXY=.*(localhost|127\.0\.0\.1)' || {
 			printf "%s " "--noproxy"
@@ -178,15 +181,15 @@ GetLength() {
 	LANGUAGE=C \
 	curl -sGI ${options} "${url}" 2>&1 | \
 	sed -nre '/^[Cc]ontent-[Ll]ength: ([[:digit:]]+).*/{s//\1/;p;q0};${q1}'); then
-		:
+		echo "Length of \"${url}\"=${length}, usign curl"
 	else
+		echo "Can't deduce length of \"${url}\""
 		return 1
 	fi
-	printf '%d\n' ${length}
 }
 
 VerifyData() {
-	local arg r s urlPrev line \
+	local arg r s UrlPrev line \
 		i j v \
 		recTime recLength duration durationSeconds length
 
@@ -228,9 +231,9 @@ VerifyData() {
 		return 0
 	}
 	Title="$(_line 2 "${Res}")"
-	urlPrev="$(_line 1 "${ResOld}")"
+	UrlPrev="$(_line 1 "${ResOld}")"
 	Res="$(sed -re '3,$ {/^[[:blank:]]*$/s//0/}' <<< "${Res}")"
-	[ "${Url}" != "${urlPrev}" -o -z "${Title}" ] || \
+	[ "${Url}" != "${UrlPrev}" -o -z "${Title}" ] || \
 	[ "$(tail -n +3 <<< "${Res}")" != "$(tail -n +3 <<< "${ResOld}")" ] || \
 	[ -z "${Intervals}" ] || {
 		cat "${Msgs}.bak"
@@ -264,40 +267,55 @@ VerifyData() {
 	tail -n +2 "${TmpDir}cmd.sh"
 
 	VideoUrl=""
-	if duration="$(GetDuration "${Url}")"; then
-		VideoUrl="${Url}"
-	elif VideoUrl="$(yt-dlp "${Url}" --get-url 2> /dev/null)"; then
-		duration="$(GetDuration "${VideoUrl}")" || :
+	if [ "${Url}" != "${UrlPrev}" ]; then
+		if duration="$(GetDuration "${Url}")"; then
+			VideoUrl="${Url}"
+		elif VideoUrl="$(yt-dlp "${Url}" --get-url 2> /dev/null)"; then
+			if [ "${VideoUrl}" != "${VideoUrlPrev}" ]; then
+				duration="$(GetDuration "${VideoUrl}")" || :
+			else
+				duration="${DurationPrev}"
+			fi
+		fi
+	else
+		VideoUrl="${VideoUrlPrev}"
+		length=${LengthPrev}
+		duration="${DurationPrev}"
 	fi
+
 	length=0
-	if [ -z "${VideoUrl}" ]; then
+	if [ -z "${VideoUrl}" -o -z "${duration}" ]; then
 		duration="0:0:0"
 		durationSeconds=0
 		echo "this URL is invalid"
 		Err="y"
 		Ext=""
 	else
-		[ "${VideoUrl}" = "${Url}" ] || \
-			printf '%s\n' "Real video URL:" \
-				"\"${VideoUrl}\""
-		if [ "${VideoUrl}" = "${VideoUrlOld}" ]; then
-			length=${lengthOld}
-			duration="${durationOld}"
-		else
-			Ext=""
-
-			[ ${length:=0} -ne 0 ] || \
-				length=$(GetLength "${VideoUrl}")
-
-			duration="${duration:-"100:0:0"}"
-
-			VideoUrlOld="${VideoUrl}"
-			lengthOld=${length}
-			durationOld="${duration}"
+		if [ "${VideoUrl}" = "${VideoUrlPrev}" ]; then
+			length=${LengthPrev}
+			duration="${DurationPrev}"
 		fi
 		durationSeconds="$(SecondsFromTimestamp "${duration}")"
 		echo "video duration: ${duration}," \
 			"$(_thsSep ${durationSeconds}) seconds"
+		[ "${VideoUrl}" = "${Url}" ] || \
+			printf '%s\n' "Real video URL:" \
+				"\"${VideoUrl}\""
+
+		if [ "${VideoUrl}" != "${VideoUrlPrev}" ]; then
+			Ext=""
+
+			[ ${length:=0} -ne 0 ] || {
+				[ "${VideoUrl##*.}" = "m3u8" ] && \
+					GetLengthM3u8 "${VideoUrl}" || \
+				GetLength "${VideoUrl}"
+			}
+
+			VideoUrlPrev="${VideoUrl}"
+			LengthPrev=${length}
+			DurationPrev="${duration}"
+		fi
+		durationSeconds="$(SecondsFromTimestamp "${duration}")"
 	fi
 
 	[ ${durationSeconds} -ne 0 ] || {
@@ -482,7 +500,7 @@ Main() {
 	readonly Msgs="${TmpDir}msgs.txt"
 
 	local Url="" Title="" StdOut \
-		VideoUrl VideoUrlOld durationOld lengthOld \
+		VideoUrl VideoUrlPrev DurationPrev LengthPrev \
 		Res ResOld Err Ext Mux \
 		Sh Sm Ss \
 		S1="" S2="" S3="0" \
@@ -511,9 +529,9 @@ Main() {
 
 	Res=""
 	ResOld=""
-	VideoUrlOld=""
-	lengthOld=0
-	durationOld=""
+	VideoUrlPrev=""
+	LengthPrev=0
+	DurationPrev=""
 	exec {StdOut}>&1
 	exec > >(tee "${Msgs}")
 	VerifyData "${@}"
