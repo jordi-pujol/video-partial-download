@@ -118,7 +118,9 @@ VlcGet() {
 		vlc://quit \
 		> "${TmpDir}$(basename "${title}").txt" 2>&1
 
-	if [ ! -s "${title}" ]; then
+	if grep -qsEe "\[[[:xdigit:]]+\] access stream error:.*failure" \
+	"${TmpDir}$(basename "${title}").txt"|| \
+	[ ! -s "${title}" ]; then
 		echo "Err: download file \"${title}\" does not exist"
 		return 1
 	fi
@@ -135,6 +137,31 @@ GetDuration() {
 		sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{
 		s//\1/;p;q}
 		${q1}'
+}
+
+GetLength() {
+	local url="${1}"
+	if [ -s "${url}" ]; then
+		length=$(_fileSize "${url}")
+		echo "Length of \"${url}\"=${length}, local file"
+	elif length=$(LANGUAGE=C \
+	wget --verbose --spider -T 7 \
+	--no-check-certificate "${url}" 2>&1 | \
+	sed -nre '/^Length: ([[:digit:]]+).*/{s//\1/;p;q};${q1}'); then
+		echo "Length of \"${url}\"=${length}, usign wget"
+	elif length=$( options="$(! set | \
+		grep -qsEe 'PROXY=.*(localhost|127\.0\.0\.1)' || {
+			printf "%s " "--noproxy"
+			sed -e 's/[^/]*\/\/\([^@]*@\)\?\([^:/]*\).*/\2/' <<< "${url}"
+		})"
+	LANGUAGE=C \
+	curl -sGI ${options} "${url}" 2>&1 | \
+	sed -nre '/^[Cc]ontent-[Ll]ength: ([[:digit:]]+).*/{s//\1/;p;q0};${q1}'); then
+		echo "Length of \"${url}\"=${length}, usign curl"
+	else
+		echo "Can't deduce length of \"${url}\""
+		return 1
+	fi
 }
 
 GetLengthM3u8() {
@@ -161,31 +188,6 @@ GetLengthM3u8() {
 		return 1
 	}
 	length=$(($(SecondsFromTimestamp ${duration})*lT/dT))
-}
-
-GetLength() {
-	local url="${1}"
-	if [ -s "${url}" ]; then
-		length=$(_fileSize "${url}")
-		echo "Length of \"${url}\"=${length}, local file"
-	elif length=$(LANGUAGE=C \
-	wget --verbose --spider -T 7 \
-	--no-check-certificate "${url}" 2>&1 | \
-	sed -nre '/^Length: ([[:digit:]]+).*/{s//\1/;p;q};${q1}'); then
-		echo "Length of \"${url}\"=${length}, usign wget"
-	elif length=$( options="$(! set | \
-		grep -qsEe 'PROXY=.*(localhost|127\.0\.0\.1)' || {
-			printf "%s " "--noproxy"
-			sed -e 's/[^/]*\/\/\([^@]*@\)\?\([^:/]*\).*/\2/' <<< "${url}"
-		})"
-	LANGUAGE=C \
-	curl -sGI ${options} "${url}" 2>&1 | \
-	sed -nre '/^[Cc]ontent-[Ll]ength: ([[:digit:]]+).*/{s//\1/;p;q0};${q1}'); then
-		echo "Length of \"${url}\"=${length}, usign curl"
-	else
-		echo "Can't deduce length of \"${url}\""
-		return 1
-	fi
 }
 
 VerifyData() {
@@ -270,16 +272,14 @@ VerifyData() {
 	if [ "${Url}" != "${UrlPrev}" ]; then
 		if duration="$(GetDuration "${Url}")"; then
 			VideoUrl="${Url}"
-		elif VideoUrl="$(yt-dlp "${Url}" --get-url 2> /dev/null)"; then
-			if [ "${VideoUrl}" != "${VideoUrlPrev}" ]; then
-				duration="$(GetDuration "${VideoUrl}")" || :
-			else
-				duration="${DurationPrev}"
-			fi
+		elif VideoUrl="$(yt-dlp "${Url}" --get-url 2> "${TmpDir}yt-dlp.txt")"; then
+			duration="$(GetDuration "${VideoUrl}")" || :
+		elif grep -qsF "urlopen error Tunnel connection failed:" \
+		"${TmpDir}yt-dlp.txt"; then
+			echo "Err: Video URL not found, connection failed"
 		fi
 	else
 		VideoUrl="${VideoUrlPrev}"
-		length=${LengthPrev}
 		duration="${DurationPrev}"
 	fi
 
@@ -294,6 +294,7 @@ VerifyData() {
 		if [ "${VideoUrl}" = "${VideoUrlPrev}" ]; then
 			length=${LengthPrev}
 			duration="${DurationPrev}"
+			Ext="${ExtPrev}"
 		fi
 		durationSeconds="$(SecondsFromTimestamp "${duration}")"
 		echo "video duration: ${duration}," \
@@ -301,21 +302,21 @@ VerifyData() {
 		[ "${VideoUrl}" = "${Url}" ] || \
 			printf '%s\n' "Real video URL:" \
 				"\"${VideoUrl}\""
-
 		if [ "${VideoUrl}" != "${VideoUrlPrev}" ]; then
 			Ext=""
-
-			[ ${length:=0} -ne 0 ] || {
-				[ "${VideoUrl##*.}" = "m3u8" ] && \
-					GetLengthM3u8 "${VideoUrl}" || \
-				GetLength "${VideoUrl}"
+			[ "${VideoUrl##*.}" = "m3u8" ] && \
+			GetLengthM3u8 "${VideoUrl}" || \
+			GetLength "${VideoUrl}" && {
+				VideoUrlPrev="${VideoUrl}"
+				LengthPrev=${length}
+				DurationPrev="${duration}"
+				Ext="${Ext:-"${VideoUrl##*.}"}"
+				ExtPrev="${Ext}"
+			} || {
+				echo "Err: Can't find the video length"
+				Err="y"
 			}
-
-			VideoUrlPrev="${VideoUrl}"
-			LengthPrev=${length}
-			DurationPrev="${duration}"
 		fi
-		durationSeconds="$(SecondsFromTimestamp "${duration}")"
 	fi
 
 	[ ${durationSeconds} -ne 0 ] || {
@@ -323,8 +324,10 @@ VerifyData() {
 		Err="y"
 	}
 
-	[ ${length:=0} -eq 0 ] && \
-		echo "Warn: video length is not valid" || \
+	[ ${length:=0} -eq 0 ] && {
+		echo "Err: video length is not valid"
+		Err="y"
+	} || \
 		echo "video length: $(_thsSep ${length}) bytes$(
 		[ ${length} -ge $((durationSeconds*1024)) ] || \
 			echo ", Warn: length is too short")"
@@ -337,7 +340,6 @@ VerifyData() {
 # asf 	ASF
 # dummy 	dummy output, can be used in creation of MP3 files.
 # ogg 	Xiph.org's ogg container format. Can contain audio, video, and metadata
-	Ext="${Ext:-"${VideoUrl##*.}"}"
 	case "${Ext}" in
 	mp4|ps) Mux="${Ext}" ;;
 	*) Mux="ts" ;;
@@ -470,10 +472,10 @@ VerifyData() {
 			si="${si} invalid"
 			Err="y"
 		fi
-		echo "${si} from $(_thsSep ${ss}) to $(_thsSep ${se})$( \
-			test ${recLength} -eq 0 || \
-				echo ", downloading $(_thsSep ${recTime}) seconds," \
-					"$(_thsSep ${recLength}) bytes")"
+		test ${recLength} -eq 0 -a -z "${Err}" || \
+			echo "${si} from $(_thsSep ${ss}) to $(_thsSep ${se})," \
+				"downloading $(_thsSep ${recTime}) seconds," \
+				"$(_thsSep ${recLength}) bytes"
 		let "Ts+=recTime,\
 			Tl+=recLength,1"
 	done
@@ -500,7 +502,7 @@ Main() {
 	readonly Msgs="${TmpDir}msgs.txt"
 
 	local Url="" Title="" StdOut \
-		VideoUrl VideoUrlPrev DurationPrev LengthPrev \
+		VideoUrl VideoUrlPrev DurationPrev LengthPrev ExtPrev \
 		Res ResOld Err Ext Mux \
 		Sh Sm Ss \
 		S1="" S2="" S3="0" \
@@ -532,6 +534,7 @@ Main() {
 	VideoUrlPrev=""
 	LengthPrev=0
 	DurationPrev=""
+	ExtPrev=""
 	exec {StdOut}>&1
 	exec > >(tee "${Msgs}")
 	VerifyData "${@}"
