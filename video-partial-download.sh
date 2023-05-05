@@ -151,7 +151,7 @@ GetLengthM3u8() {
 		let "dT+=$(SecondsFromTimestamp "$(GetDuration "${partn}")"),1"
 		let "lT+=$(length=""
 			GetLength "${partn}" 1>&2
-			echo ${length}),1"
+			echo ${length:-0}),1"
 	done 2>&1 < <(LANGUAGE=C \
 	ffprobe -hide_banner -i "${url}" 2>&1 | \
 	sed -nre "/.*Opening '(.*)' for reading.*/{s//\1/;p}")
