@@ -154,7 +154,7 @@ GetLengthM3u8() {
 			echo ${length:-0}),1"
 	done 2>&1 < <(LANGUAGE=C \
 	ffprobe -hide_banner -i "${url}" 2>&1 | \
-	sed -nre "/.*Opening '(.*)' for reading.*/{s//\1/;p}")
+	sed -nre "/.*Opening '(.+)' for reading.*/{s//\1/;p}")
 
 	[ ${dT} -gt 0 ] || {
 		echo "length of \"${url}\" not found"
