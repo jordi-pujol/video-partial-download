@@ -339,8 +339,8 @@ VerifyData() {
 # ogg 	Xiph.org's ogg container format. Can contain audio, video, and metadata
 	Ext="${Ext:-"${VideoUrl##*.}"}"
 	case "${Ext}" in
-		mp4|ps) Mux="${Ext}" ;;
-		*) Mux="ts" ;;
+	mp4|ps) Mux="${Ext}" ;;
+	*) Mux="ts" ;;
 	esac
 
 	if [ -z "${Title}" ]; then
