@@ -111,7 +111,7 @@ VlcGet() {
 	vlc ${VlcOptions} \
 		--no-one-instance \
 		"${url}" \
-		--sout "file/${Mux}:${title}" \
+		--sout "#gather:std{access=file,dst='${title}'}" \
 		--start-time ${sTime} \
 		--stop-time ${eTime} \
 		--run-time $((4+eTime-sTime)) \
@@ -167,9 +167,16 @@ GetLength() {
 GetLengthM3u8() {
 	local url="${1}" \
 		partn lT dT
-	LANGUAGE=C wget -O - "${url}" 2> "${TmpDir}$(basename "${url}").txt" | \
-	sed -ne '1{/^#EXTM3U$/!q1;q}' || \
+	LANGUAGE=C wget -O "${TmpDir}$(basename "${url}")" \
+		"${url}" \
+		2> "${TmpDir}$(basename "${url}").txt" || {
+		echo "Err: error retrieving \"${url}\""
 		return 1
+	}
+	sed -ne '1{/^#EXTM3U$/!q1;q}' "${TmpDir}$(basename "${url}")" || {
+		echo "Err: not a m3u file \"${TmpDir}$(basename "${url}")\""
+		return 1
+	}
 	echo "Computing length of \"${url}\""
 	dT=0
 	lT=0
@@ -332,19 +339,6 @@ VerifyData() {
 		[ ${length} -ge $((durationSeconds*1024)) ] || \
 			echo ", Warn: length is too short")"
 
-# mpeg1 	MPEG-1 multiplexing - recommended for portability. Only works with mp1v video and mpga audio, but works on all known players
-# ts 	MPEG Transport Stream, primarily used for streaming MPEG. Also used in DVDs
-# ps 	MPEG Program Stream, primarily used for saving MPEG data to disk.
-# mp4 	MPEG-4 Mux format, used only for MPEG-4 video and MPEG audio.
-# avi 	AVI
-# asf 	ASF
-# dummy 	dummy output, can be used in creation of MP3 files.
-# ogg 	Xiph.org's ogg container format. Can contain audio, video, and metadata
-	case "${Ext}" in
-	mp4|ps) Mux="${Ext}" ;;
-	*) Mux="ts" ;;
-	esac
-
 	if [ -z "${Title}" ]; then
 		if Info="$(yt-dlp "${Url}" --get-title 2> /dev/null | \
 		sed -re "/[\"']+/s///g")"; then
@@ -500,7 +494,7 @@ Main() {
 
 	local Url="" Title="" StdOut \
 		VideoUrl VideoUrlPrev DurationPrev LengthPrev ExtPrev \
-		Res ResOld Err Ext Mux \
+		Res ResOld Err Ext \
 		Sh Sm Ss \
 		S1="" S2="" S3="0" \
 		S4="" S5="" S6="0" \
