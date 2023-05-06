@@ -28,12 +28,12 @@ _unquote() {
 		sed -re "s/^([\"]([^\"]*)[\"]|[']([^']*)['])$/\2\3/"
 }
 
-HmsFromSeconds() {
+SecondsToHms() {
 	local time=${1}
 	printf "%d\t" $((time/3600)) $(((time%3600)/60)) $((time%60))
 }
 
-SecondsFromTimestamp() {
+TimestampToSeconds() {
 	local timestamp="${@}" \
 		time=0 factor=1 word
 	while read -r word; do
@@ -65,7 +65,7 @@ SecondsFromTimestamp() {
 TimeStamp() {
 	local time="${@}"
 	printf "%02d:%02d:%02d\n" \
-		$(HmsFromSeconds $(SecondsFromTimestamp "${time}" || echo 0))
+		$(SecondsToHms $(TimestampToSeconds "${time}" || echo 0))
 }
 
 _fileSize() {
@@ -168,8 +168,8 @@ GetLengthM3u8() {
 	local url="${1}" \
 		partn lT dT
 	LANGUAGE=C wget -O "${TmpDir}$(basename "${url}")" \
-		"${url}" \
-		2> "${TmpDir}$(basename "${url}").txt" || {
+	"${url}" \
+	2> "${TmpDir}$(basename "${url}").txt" || {
 		echo "Err: error retrieving \"${url}\""
 		return 1
 	}
@@ -182,7 +182,7 @@ GetLengthM3u8() {
 	lT=0
 	while read -r partn; do
 		Ext="${Ext:-"${partn##*.}"}"
-		let "dT+=$(SecondsFromTimestamp "$(GetDuration "${partn}" || :)"),1"
+		let "dT+=$(TimestampToSeconds "$(GetDuration "${partn}" || :)"),1"
 		let "lT+=$(length=""
 			GetLength "${partn}" 1>&2
 			echo ${length:-0}),1"
@@ -194,7 +194,7 @@ GetLengthM3u8() {
 		echo "length of \"${url}\" not found"
 		return 1
 	}
-	length=$(($(SecondsFromTimestamp ${duration})*lT/dT))
+	length=$(($(TimestampToSeconds ${duration})*lT/dT))
 }
 
 VerifyData() {
@@ -208,14 +208,14 @@ VerifyData() {
 			arg="$(eval echo "\$${i}")"
 			for j in 1 2; do
 				s="$(printf '%s\n' "${arg}" | cut -f ${j} -s -d '-')"
-				if v="$(SecondsFromTimestamp "${s}")"; then
-					v="$(HmsFromSeconds ${v})"
+				if v="$(TimestampToSeconds "${s}")"; then
+					v="$(SecondsToHms ${v})"
 				else
 					echo "interval $((i-2))=\"${arg}\" is invalid \"${s}\""
 					v="$(sed -nre '/[[:blank:]]+/s///g' \
 						-e '/^0*([^:]+):0*([^:]+):0*([^:]+)$/{s//\1h\2m\3s/;p;q}' \
 						-e '/.*/{s//0/;p}' <<< "${s}")"
-					v="$(HmsFromSeconds "$(SecondsFromTimestamp "${v}" || echo 0)")"
+					v="$(SecondsToHms "$(TimestampToSeconds "${v}" || echo 0)")"
 				fi
 				for v in ${v}; do
 					[ -z "${Res}" ] && \
@@ -303,7 +303,7 @@ VerifyData() {
 			duration="${DurationPrev}"
 			Ext="${ExtPrev}"
 		fi
-		durationSeconds="$(SecondsFromTimestamp "${duration}")"
+		durationSeconds="$(TimestampToSeconds "${duration}")"
 		echo "video duration: ${duration}," \
 			"$(_thsSep ${durationSeconds}) seconds"
 		[ "${VideoUrl}" = "${Url}" ] || \
@@ -506,9 +506,9 @@ Main() {
 		S22="" S23="" S24="0" \
 		VlcOptions \
 		Intervals \
-		i title files length rc
+		i title playlist length rc
 
-	mkdir "${TmpDir}"
+	mkdir -p "${TmpDir}"
 	VlcOptions=""
 	if [ -z "${Debug:=}" ]; then
 		VlcOptions="-I dummy"
@@ -572,8 +572,8 @@ Main() {
 		$((Ie${Intervals})) $((Il${Intervals})) || \
 			echo "Err: error in vlc download"
 	else
-		files="${TmpDir}files.txt"
-		: > "${files}"
+		playlist="${TmpDir}playlist.txt"
+		: > "${playlist}"
 		Err=""
 		for i in ${Intervals}; do
 			title="${TmpDir}${i}.${Ext}"
@@ -582,13 +582,13 @@ Main() {
 				echo "Err: error in vlc download, interval ${i}"
 				Err="y"
 			fi
-			echo "file '$(basename "${title}")'" >> "${files}"
+			echo "file '$(basename "${title}")'" >> "${playlist}"
 		done
 		if [ -z "${Err}" ]; then
-			echo "ffmpeg concat" $(cat "${files}")
+			echo "ffmpeg concat" $(cat "${playlist}")
 			if ! ( cd "${TmpDir}"
 			ffmpeg -nostdin -hide_banner -y \
-			-f concat -safe 0 -i "$(basename "${files}")" \
+			-f concat -safe 0 -i "$(basename "${playlist}")" \
 			-c:v copy "${CurrDir}${Title}" \
 			> "${TmpDir}${Title}.txt" 2>&1
 			); then
