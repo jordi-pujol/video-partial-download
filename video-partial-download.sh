@@ -191,7 +191,7 @@ GetLengthM3u8() {
 }
 
 VerifyData() {
-	local arg r s UrlPrev line \
+	local arg r s UrlPrev line Ierr \
 		i j v \
 		recTime recLength duration durationSeconds length
 
@@ -367,6 +367,7 @@ VerifyData() {
 	Err=""
 	line=0
 	for i in $(seq 1 4); do
+		Ierr=""
 		ss=0
 		se=0
 		si="Interval ${i}: "
@@ -379,6 +380,7 @@ VerifyData() {
 			eval S${line}='${s}'
 			echo "Err: error in interval ${i}, start hour"
 			Err="y"
+			Ierr="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
 		[ "${s}" = "0" ] || \
@@ -392,6 +394,7 @@ VerifyData() {
 			eval S${line}='${s}'
 			echo "Err: error in interval ${i}, start minute"
 			Err="y"
+			Ierr="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
 		[ "${s}" = "0" ] || \
@@ -403,6 +406,7 @@ VerifyData() {
 			eval S${line}='${s}'
 			echo "Err: error in interval ${i}, start second"
 			Err="y"
+			Ierr="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
 		[ "${s}" = "0" ] || \
@@ -419,6 +423,7 @@ VerifyData() {
 			eval S${line}='${s}'
 			echo "Err: error in interval ${i}, end hour"
 			Err="y"
+			Ierr="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
 		[ "${s}" = "0" ] || \
@@ -432,6 +437,7 @@ VerifyData() {
 			eval S${line}='${s}'
 			echo "Err: error in interval ${i}, end minute"
 			Err="y"
+			Ierr="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
 		[ "${s}" = "0" ] || \
@@ -443,6 +449,7 @@ VerifyData() {
 			eval S${line}='${s}'
 			echo "Err: error in interval ${i}, end second"
 			Err="y"
+			Ierr="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
 		[ "${s}" = "0" ] || \
@@ -460,6 +467,7 @@ VerifyData() {
 		if [ ${se} -gt $((durationSeconds)) ]; then
 			si="${si} out of limits"
 			Err="y"
+			Ierr="y"
 		elif [ ${ss} -lt ${se} ]; then
 			Intervals="${Intervals}${i} "
 			let "Is${i}=ss,\
@@ -471,8 +479,9 @@ VerifyData() {
 		elif [ ${ss} -ne 0 -o ${se} -ne 0 ]; then
 			si="${si} invalid"
 			Err="y"
+			Ierr="y"
 		fi
-		test ${recLength} -eq 0 -a -z "${Err}" || \
+		test ${recLength} -eq 0 -a -z "${Ierr}" || \
 			echo "${si} from $(_thsSep ${ss}) to $(_thsSep ${se})," \
 				"downloading $(_thsSep ${recTime}) seconds," \
 				"$(_thsSep ${recLength}) bytes"
@@ -484,7 +493,7 @@ VerifyData() {
 		echo "Downloading $(_thsSep ${Ts}) seconds$( \
 			test ${Tl} -eq 0 || \
 				echo ", $(_thsSep ${Tl}) bytes")"
-	else
+	elif [ -z "${Err}" ]; then
 		echo "Err: have not defined any interval"
 		Err="y"
 	fi
