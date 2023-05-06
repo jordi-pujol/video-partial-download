@@ -86,15 +86,15 @@ _thsSep() {
 }
 
 _natural() {
-	local v w
+	local v
+	let "line++,1"
 	v="$(_line $((line+2)) "${Res}" | \
 		sed -re '/^[[:blank:]]*$/s//0/')"
 	[ -n "${v:=0}" ] && \
-	w="$(printf '%d\n' "${v}" 2> /dev/null)" || {
-		printf '%s\n' "${v}"
+	s="$(printf '%d\n' "${v}" 2> /dev/null)" || {
+		s="${v}"
 		return 1
 	}
-	printf '%d\n' "${w}"
 }
 
 VlcGet() {
@@ -175,7 +175,7 @@ GetLengthM3u8() {
 	lT=0
 	while read -r partn; do
 		Ext="${Ext:-"${partn##*.}"}"
-		let "dT+=$(SecondsFromTimestamp "$(GetDuration "${partn}")"),1"
+		let "dT+=$(SecondsFromTimestamp "$(GetDuration "${partn}" || :)"),1"
 		let "lT+=$(length=""
 			GetLength "${partn}" 1>&2
 			echo ${length:-0}),1"
@@ -191,7 +191,7 @@ GetLengthM3u8() {
 }
 
 VerifyData() {
-	local arg r s UrlPrev line Ierr \
+	local arg r s urlPrev line ierr \
 		i j v \
 		recTime recLength duration durationSeconds length
 
@@ -233,9 +233,9 @@ VerifyData() {
 		return 0
 	}
 	Title="$(_line 2 "${Res}")"
-	UrlPrev="$(_line 1 "${ResOld}")"
+	urlPrev="$(_line 1 "${ResOld}")"
 	Res="$(sed -re '3,$ {/^[[:blank:]]*$/s//0/}' <<< "${Res}")"
-	[ "${Url}" != "${UrlPrev}" -o -z "${Title}" ] || \
+	[ "${Url}" != "${urlPrev}" -o -z "${Title}" ] || \
 	[ "$(tail -n +3 <<< "${Res}")" != "$(tail -n +3 <<< "${ResOld}")" ] || \
 	[ -z "${Intervals}" ] || {
 		cat "${Msgs}.bak"
@@ -269,12 +269,12 @@ VerifyData() {
 	tail -n +2 "${TmpDir}cmd.sh"
 
 	VideoUrl=""
-	if [ "${Url}" != "${UrlPrev}" ]; then
+	if [ "${Url}" != "${urlPrev}" ]; then
 		if duration="$(GetDuration "${Url}")"; then
 			VideoUrl="${Url}"
 		elif VideoUrl="$(yt-dlp "${Url}" --get-url 2> "${TmpDir}yt-dlp.txt")"; then
 			duration="$(GetDuration "${VideoUrl}")" || :
-		elif grep -qsF "urlopen error Tunnel connection failed:" \
+		elif grep -qse "urlopen error.*connection failed:" \
 		"${TmpDir}yt-dlp.txt"; then
 			echo "Err: Video URL not found, connection failed"
 		fi
@@ -367,46 +367,40 @@ VerifyData() {
 	Err=""
 	line=0
 	for i in $(seq 1 4); do
-		Ierr=""
+		ierr=""
 		ss=0
 		se=0
 		si="Interval ${i}: "
-		let "line++,1"
-		if s="$(_natural)"; then
+		if _natural; then
 			let "ss=s,S${line}=s,1"
 			[ $((S${line})) -gt 0 ] || \
 				eval "S${line}="
 		else
 			eval S${line}='${s}'
 			echo "Err: error in interval ${i}, start hour"
-			Err="y"
-			Ierr="y"
+			ierr="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
 		[ "${s}" = "0" ] || \
 			si="${si}${s}h"
-		let "line++,1"
-		if s="$(_natural)" && [ ${s} -lt 60 ]; then
+		if _natural && [ ${s} -lt 60 ]; then
 			let "ss=ss*60+s,S${line}=s,1"
 			[ $((S${line})) -gt 0 ] || \
 				eval "S${line}="
 		else
 			eval S${line}='${s}'
 			echo "Err: error in interval ${i}, start minute"
-			Err="y"
-			Ierr="y"
+			ierr="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
 		[ "${s}" = "0" ] || \
 			si="${si}${s}m"
-		let "line++,1"
-		if s="$(_natural)" && [ ${s} -lt 60 ]; then
+		if _natural && [ ${s} -lt 60 ]; then
 			let "ss=ss*60+s,S${line}=s,1"
 		else
 			eval S${line}='${s}'
 			echo "Err: error in interval ${i}, start second"
-			Err="y"
-			Ierr="y"
+			ierr="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
 		[ "${s}" = "0" ] || \
@@ -414,42 +408,36 @@ VerifyData() {
 		[ "${si: -1}" != " " ] && \
 			si="${si}-" || \
 			si="${si}0-"
-		let "line++,1"
-		if s="$(_natural)"; then
+		if _natural; then
 			let "se=s,S${line}=s,1"
 			[ $((S${line})) -gt 0 ] || \
 				eval "S${line}="
 		else
 			eval S${line}='${s}'
 			echo "Err: error in interval ${i}, end hour"
-			Err="y"
-			Ierr="y"
+			ierr="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
 		[ "${s}" = "0" ] || \
 			si="${si}${s}h"
-		let "line++,1"
-		if s="$(_natural)" && [ ${s} -lt 60 ]; then
+		if _natural && [ ${s} -lt 60 ]; then
 			let "se=se*60+s,S${line}=s,1"
 			[ $((S${line})) -gt 0 ] || \
 				eval "S${line}="
 		else
 			eval S${line}='${s}'
 			echo "Err: error in interval ${i}, end minute"
-			Err="y"
-			Ierr="y"
+			ierr="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
 		[ "${s}" = "0" ] || \
 			si="${si}${s}m"
-		let "line++,1"
-		if s="$(_natural)" && [ ${s} -lt 60 ]; then
+		if _natural && [ ${s} -lt 60 ]; then
 			let "se=se*60+s,S${line}=s,1"
 		else
 			eval S${line}='${s}'
 			echo "Err: error in interval ${i}, end second"
-			Err="y"
-			Ierr="y"
+			ierr="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
 		[ "${s}" = "0" ] || \
@@ -458,6 +446,7 @@ VerifyData() {
 			si="${si}0"
 
 		[ ${durationSeconds} -ne 0 ] || {
+			Err="${Err:-${ierr}}"
 			echo "${si} from $(_thsSep ${ss}) to $(_thsSep ${se})"
 			continue
 		}
@@ -466,8 +455,7 @@ VerifyData() {
 		recLength=0
 		if [ ${se} -gt $((durationSeconds)) ]; then
 			si="${si} out of limits"
-			Err="y"
-			Ierr="y"
+			ierr="y"
 		elif [ ${ss} -lt ${se} ]; then
 			Intervals="${Intervals}${i} "
 			let "Is${i}=ss,\
@@ -478,15 +466,15 @@ VerifyData() {
 			let "Il${i}=recLength,1"
 		elif [ ${ss} -ne 0 -o ${se} -ne 0 ]; then
 			si="${si} invalid"
-			Err="y"
-			Ierr="y"
+			ierr="y"
 		fi
-		test ${recLength} -eq 0 -a -z "${Ierr}" || \
+		test ${recLength} -eq 0 -a -z "${ierr}" || \
 			echo "${si} from $(_thsSep ${ss}) to $(_thsSep ${se})," \
 				"downloading $(_thsSep ${recTime}) seconds," \
 				"$(_thsSep ${recLength}) bytes"
 		let "Ts+=recTime,\
 			Tl+=recLength,1"
+		Err="${Err:-${ierr}}"
 	done
 
 	if [ -n "${Intervals}" ]; then
@@ -554,7 +542,7 @@ Main() {
 		rc=0
 		Res="$(export DIALOGRC=""
 		dialog --stdout --no-shadow --colors \
-		--begin 25 0 --title Messages \
+		--begin 24 0 --title Messages \
 		--tailboxbg "${Msgs}" 18 172 \
 		--and-widget --begin 0 0 \
 		--title "VLC download video parts" --colors \
