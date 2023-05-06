@@ -585,7 +585,7 @@ Main() {
 			title="${TmpDir}${i}.${Ext}"
 			if ! VlcGet "${VideoUrl}" "${title}" $((Is${i})) \
 			$((Ie${i})) $((Il${i})); then
-				echo "Err: error in vlc download"
+				echo "Err: error in vlc download, interval ${i}"
 				Err="y"
 			fi
 			echo "file '$(basename "${title}")'" >> "${files}"
