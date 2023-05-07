@@ -23,11 +23,6 @@
 #  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 #************************************************************************
 
-_unquote() {
-	printf "%s\n" "${@}" | \
-		sed -re "s/^([\"]([^\"]*)[\"]|[']([^']*)['])$/\2\3/"
-}
-
 SecondsToHms() {
 	local time=${1}
 	printf "%d\t" $((time/3600)) $(((time%3600)/60)) $((time%60))
@@ -311,18 +306,18 @@ VerifyData() {
 				"\"${VideoUrl}\""
 		if [ "${VideoUrl}" != "${VideoUrlPrev}" ]; then
 			Ext=""
-			[ "${VideoUrl##*.}" = "m3u8" ] && \
+			if [[ ${VideoUrl} =~ .m3u8 ]] && \
 			GetLengthM3u8 "${VideoUrl}" || \
-			GetLength "${VideoUrl}" && {
+			GetLength "${VideoUrl}"; then
 				VideoUrlPrev="${VideoUrl}"
 				LengthPrev=${length}
 				DurationPrev="${duration}"
 				Ext="${Ext:-"${VideoUrl##*.}"}"
 				ExtPrev="${Ext}"
-			} || {
+			else
 				echo "Err: Can't find the video length"
 				Err="y"
-			}
+			fi
 		fi
 	fi
 
@@ -340,11 +335,11 @@ VerifyData() {
 			echo ", Warn: length is too short")"
 
 	if [ -z "${Title}" ]; then
-		Title="$(yt-dlp "${Url}" --get-title | \
-		sed -re "/[\"']+/s///g")" || :
+		Title="$(basename "$(yt-dlp "${Url}" --get-title | \
+		sed -re "/[\"']+/s///g")")" || :
 		[ -n "${Title}" -o -z "${VideoUrl}" ] || \
-			Title="$(yt-dlp "${VideoUrl}" --get-title | \
-			sed -re "/[\"']+/s///g")" || {
+			Title="$(basename "$(yt-dlp "${VideoUrl}" --get-title | \
+			sed -re "/[\"']+/s///g")")" || {
 				Title="$(basename "${VideoUrl}")"
 				Title="${Title%.*}"
 			}
