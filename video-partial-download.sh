@@ -48,9 +48,9 @@ TimestampToSeconds() {
 		[[:digit:]]*) let "time+=factor*word,1" ;;
 		*) return 1 ;;
 		esac
-	done < <(sed -re ':a' \
-	-e '/^[[:blank:]]+/{s///
-		t a}' \
+	done < <(sed -r \
+	-e '/[[:blank:]]+/s///g' \
+	-e ':a' \
 	-e '/^0*([[:digit:]]+).*/{h;s//\1/;p
 		x;s/^[[:digit:]]+//
 		t a}' \
