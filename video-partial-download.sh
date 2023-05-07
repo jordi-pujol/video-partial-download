@@ -145,8 +145,7 @@ GetLength() {
 		length=$(_fileSize "${url}")
 		echo "Length of \"${url}\"=${length}, local file"
 	elif length=$(LANGUAGE=C \
-	wget --verbose --spider -T 7 \
-	--no-check-certificate "${url}" 2>&1 | \
+	wget --verbose -T 7 --no-check-certificate --spider "${url}" 2>&1 | \
 	sed -nre '/^Length: ([[:digit:]]+).*/{s//\1/;p;q};${q1}'); then
 		echo "Length of \"${url}\"=${length}, usign wget"
 	elif length=$( options="$(! set | \
@@ -167,7 +166,9 @@ GetLength() {
 GetLengthM3u8() {
 	local url="${1}" \
 		partn lT dT
-	LANGUAGE=C wget -O "${TmpDir}$(basename "${url}")" \
+	LANGUAGE=C \
+	wget --verbose -T 7 --no-check-certificate \
+	-O "${TmpDir}$(basename "${url}")" \
 	"${url}" \
 	2> "${TmpDir}$(basename "${url}").txt" || {
 		echo "Err: error retrieving \"${url}\""
@@ -281,9 +282,14 @@ VerifyData() {
 			VideoUrl="${Url}"
 		elif VideoUrl="$(yt-dlp "${Url}" --get-url 2> "${TmpDir}yt-dlp.txt")"; then
 			duration="$(GetDuration "${VideoUrl}")" || :
-		elif grep -qse "urlopen error.*connection failed:" \
-		"${TmpDir}yt-dlp.txt"; then
-			echo "Err: Video URL not found, connection failed"
+		else
+			grep -qsF "connection failed:" "${TmpDir}yt-dlp.txt" && \
+				echo "Err: connection failed to \"${Url}\"" || \
+				echo "Err: URL not found or does not contain a video"
+			duration="0:0:0"
+			durationSeconds=0
+			Err="y"
+			Ext=""
 		fi
 	else
 		VideoUrl="${VideoUrlPrev}"
@@ -291,13 +297,7 @@ VerifyData() {
 	fi
 
 	length=0
-	if [ -z "${VideoUrl}" -o -z "${duration}" ]; then
-		duration="0:0:0"
-		durationSeconds=0
-		echo "this URL is invalid"
-		Err="y"
-		Ext=""
-	else
+	if [ -n "${VideoUrl}" -a -n "${duration}" ]; then
 		if [ "${VideoUrl}" = "${VideoUrlPrev}" ]; then
 			length=${LengthPrev}
 			duration="${DurationPrev}"
@@ -340,24 +340,23 @@ VerifyData() {
 			echo ", Warn: length is too short")"
 
 	if [ -z "${Title}" ]; then
-		if Info="$(yt-dlp "${Url}" --get-title 2> /dev/null | \
-		sed -re "/[\"']+/s///g")"; then
-			Title="${Info}"
-			echo "Setting title from Web page to \"${Title}\""
-		elif [ -n "${VideoUrl}" ]; then
-			if Title="$(yt-dlp "${VideoUrl}" --get-title 2> /dev/null | \
-			sed -re "/[\"']+/s///g")"; then
-				echo "Setting title from video to \"${Title}\""
-			else
+		Title="$(yt-dlp "${Url}" --get-title | \
+		sed -re "/[\"']+/s///g")" || :
+		[ -n "${Title}" -o -z "${VideoUrl}" ] || \
+			Title="$(yt-dlp "${VideoUrl}" --get-title | \
+			sed -re "/[\"']+/s///g")" || {
 				Title="$(basename "${VideoUrl}")"
 				Title="${Title%.*}"
-				echo "Setting title from video URL to \"${Title}\""
-			fi
-		else
-			echo "Can't set title"
-			Err="y"
-		fi
-	fi
+			}
+		[ -n "${Title}" ] || \
+			Title="$(LANGUAGE=C \
+			wget -T 7 --no-check-certificate -O - "${Url}" | \
+			awk '/<title>.*<\/title>/{ \
+			gsub(/.*<title>|<\/title>.*/,""); print; exit}')" || :
+		[ -z "${Title}" ] && \
+			Err="y" || \
+			echo "Setting title to \"${Title}\""
+	fi 2> /dev/null
 
 	Intervals=""
 	Ts=0
