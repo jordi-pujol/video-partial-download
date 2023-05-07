@@ -111,7 +111,7 @@ VlcGet() {
 	vlc ${VlcOptions} \
 		--no-one-instance \
 		"${url}" \
-		--sout "#gather:std{access=file,dst='${title}'}" \
+		--sout "#std{access=file,dst='${title}'}" \
 		--start-time ${sTime} \
 		--stop-time ${eTime} \
 		--run-time $((4+eTime-sTime)) \
