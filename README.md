@@ -26,6 +26,7 @@ Intervals are composed of two timestamps separated by hyphen, (- sign).
 In command line Timestamps may be written as:
 
 1:2:0 (Hours, minutes, seconds)
-'1h 2m' (blanks will be discarded)
-'2m1h' (ordering doesn't matter)
 
+'1h 2m' (blanks will be discarded)
+
+'2m1h' (ordering doesn't matter)
