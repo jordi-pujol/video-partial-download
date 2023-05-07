@@ -220,12 +220,11 @@ VerifyData() {
 				done
 			done
 		done
-		[ ${#} -eq 0 ] || \
 		[ -n "${Res}" ] || \
 			Res="${1:-}${LF}${2:-}"
-		for i in $(seq $((${#}+1)) 6); do
-			Res="${Res}${LF}0"
-		done
+		i=$(((2+4*6)-$(wc -l <<< "${Res}")))
+		[ ${i} -le 0 ] || \
+			Res="${Res}${LF}$(printf '0%.0s\n' $(seq 1 ${i}))"
 	fi
 
 	Err=""
