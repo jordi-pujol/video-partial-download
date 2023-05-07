@@ -344,21 +344,24 @@ VerifyData() {
 		sed -re "/[\"']+/s///g")"; then
 			Title="${Info}"
 			echo "Setting title from Web page to \"${Title}\""
-		elif [ -n "${VideoUrl}" ] && \
-		Title="$(yt-dlp "${VideoUrl}" --get-title 2> /dev/null | \
-		sed -re "/[\"']+/s///g")"; then
-			echo "Setting title from video URL to \"${Title}\""
+		elif [ -n "${VideoUrl}" ]; then
+			if Title="$(yt-dlp "${VideoUrl}" --get-title 2> /dev/null | \
+			sed -re "/[\"']+/s///g")"; then
+				echo "Setting title from video to \"${Title}\""
+			else
+				Title="$(basename "${VideoUrl}")"
+				Title="${Title%.*}"
+				echo "Setting title from video URL to \"${Title}\""
+			fi
 		else
-			Title="$(basename "${Url}")"
-			Title="${Title%.*}"
-			echo "Setting title from URL name to \"${Title}\""
+			echo "Can't set title"
+			Err="y"
 		fi
 	fi
 
 	Intervals=""
 	Ts=0
 	Tl=0
-	Err=""
 	line=0
 	for i in $(seq 1 4); do
 		ierr=""
