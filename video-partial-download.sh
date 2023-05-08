@@ -4,7 +4,7 @@
 #
 #  Download only some parts of a video URL.
 #  We must specify start time and stop time of each part.
-#  $Revision: 1.0 $
+#  $Revision: 1.1 $
 #
 #  Copyright (C) 2023-2023 Jordi Pujol <jordipujolp AT gmail DOT com>
 #
@@ -57,10 +57,29 @@ TimestampToSeconds() {
 	printf '%d\n' ${time}
 }
 
-TimeStamp() {
+Timestamp() {
 	local time="${@}"
 	printf "%02d:%02d:%02d\n" \
 		$(SecondsToHms $(TimestampToSeconds "${time}" || echo 0))
+}
+
+SecondsToTimestamp() {
+	local time="${1}" \
+		factor=86400 t unit="d" \
+		timestamp=""
+	while [ ${time} -gt 0 ]; do
+		[ $((t=time/factor)) -eq 0 ] || {
+			let "time-=t*factor,1"
+			timestamp="${timestamp}${t}${unit}"
+		}
+		case "${unit}" in
+		d) unit="h";;
+		h) unit="m";;
+		m) unit="s";;
+		esac
+		let "factor/=(factor <= 3600 ? 60 : 24),1"
+	done
+	printf "%s\n" "${timestamp:-0}"
 }
 
 _fileSize() {
@@ -221,10 +240,9 @@ VerifyData() {
 			done
 		done
 		[ -n "${Res}" ] || \
-			Res="${1:-}${LF}${2:-}"
-		i=$(((2+4*6)-$(wc -l <<< "${Res}")))
-		[ ${i} -le 0 ] || \
-			Res="${Res}${LF}$(printf '0%.0s\n' $(seq 1 ${i}))"
+			Res="${1:-}${LF}${2:-}${LF}0"
+		Res="${Res}$(printf '\n0%.0s' \
+			$(seq 1 $((2+4*6-$(wc -l <<< "${Res}")))))"
 	fi
 
 	Err=""
@@ -320,7 +338,7 @@ VerifyData() {
 		fi
 	fi
 
-	[ ${durationSeconds} -ne 0 ] || {
+	[ ${durationSeconds:=0} -ne 0 ] || {
 		echo "Err: duration is zero, therefore intervals can't be checked"
 		Err="y"
 	}
@@ -362,7 +380,7 @@ VerifyData() {
 		se=0
 		si="Interval ${i}: "
 		if _natural; then
-			let "ss=s,S${line}=s,1"
+			let "ss=s*3600,S${line}=s,1"
 			[ $((S${line})) -gt 0 ] || \
 				eval "S${line}="
 		else
@@ -371,35 +389,31 @@ VerifyData() {
 			ierr="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
-		[ "${s}" = "0" ] || \
-			si="${si}${s}h"
-		if _natural && [ ${s} -lt 60 ]; then
-			let "ss=ss*60+s,S${line}=s,1"
+		if _natural; then
+			let "ss+=s*60,S${line}=s,1"
 			[ $((S${line})) -gt 0 ] || \
 				eval "S${line}="
+			[ ${s} -lt 60 ] || \
+				echo "Warn: interval ${i}, start minute not less than 60"
 		else
 			eval S${line}='${s}'
 			echo "Err: error in interval ${i}, start minute"
 			ierr="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
-		[ "${s}" = "0" ] || \
-			si="${si}${s}m"
-		if _natural && [ ${s} -lt 60 ]; then
-			let "ss=ss*60+s,S${line}=s,1"
+		if _natural; then
+			let "ss+=s,S${line}=s,1"
+			[ ${s} -lt 60 ] || \
+				echo "Warn: interval ${i}, start second not less than 60"
 		else
 			eval S${line}='${s}'
 			echo "Err: error in interval ${i}, start second"
 			ierr="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
-		[ "${s}" = "0" ] || \
-			si="${si}${s}s"
-		[ "${si: -1}" != " " ] && \
-			si="${si}-" || \
-			si="${si}0-"
+		si="${si}$(SecondsToTimestamp ${ss})-"
 		if _natural; then
-			let "se=s,S${line}=s,1"
+			let "se=s*3600,S${line}=s,1"
 			[ $((S${line})) -gt 0 ] || \
 				eval "S${line}="
 		else
@@ -408,32 +422,29 @@ VerifyData() {
 			ierr="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
-		[ "${s}" = "0" ] || \
-			si="${si}${s}h"
-		if _natural && [ ${s} -lt 60 ]; then
-			let "se=se*60+s,S${line}=s,1"
+		if _natural; then
+			let "se+=s*60,S${line}=s,1"
 			[ $((S${line})) -gt 0 ] || \
 				eval "S${line}="
+			[ ${s} -lt 60 ] || \
+				echo "Warn: interval ${i}, end minute not less than 60"
 		else
 			eval S${line}='${s}'
 			echo "Err: error in interval ${i}, end minute"
 			ierr="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
-		[ "${s}" = "0" ] || \
-			si="${si}${s}m"
-		if _natural && [ ${s} -lt 60 ]; then
-			let "se=se*60+s,S${line}=s,1"
+		if _natural; then
+			let "se+=s,S${line}=s,1"
+			[ ${s} -lt 60 ] || \
+				echo "Warn: interval ${i}, end second not less than 60"
 		else
 			eval S${line}='${s}'
 			echo "Err: error in interval ${i}, end second"
 			ierr="y"
 		fi
 		s="$(eval echo "\${S${line}:-0}")"
-		[ "${s}" = "0" ] || \
-			si="${si}${s}s"
-		[ "${si: -1}" != "-" ] || \
-			si="${si}0"
+		si="${si}$(SecondsToTimestamp ${se})"
 
 		[ ${durationSeconds} -ne 0 ] || {
 			Err="${Err:-${ierr}}"
@@ -541,10 +552,10 @@ Main() {
 		--form ' Enter Values, press Enter:' 24 172 20 \
 		'URL . . . . . >' 1 1 "${Url}" 1 22 50 1024 \
 		'Description . ' 3 1 "${Title}" 3 22 50 1024 \
-		'Interval . . ' 5 1 "${S1}" 5 22 4 4 'h' 5 26 "${S2}" 5 27 3 3 'm' 5 30 "${S3}" 5 31 3 3 's-' 5 34 "${S4}" 5 36 4 4 'h' 5 40 "${S5}" 5 41 3 3 'm' 5 44 "${S6}" 5 45 3 3 's' 5 48 '' 5 48 0 0 \
-		'Interval . . ' 7 1 "${S7}" 7 22 4 4 'h' 7 26 "${S8}" 7 27 3 3 'm' 7 30 "${S9}" 7 31 3 3 's-' 7 34 "${S10}" 7 36 4 4 'h' 7 40 "${S11}" 7 41 3 3 'm' 7 44 "${S12}" 7 45 3 3 's' 7 48 '' 7 48 0 0 \
-		'Interval . . ' 9 1 "${S13}" 9 22 4 4 'h' 9 26 "${S14}" 9 27 3 3 'm' 9 30 "${S15}" 9 31 3 3 's-' 9 34 "${S16}" 9 36 4 4 'h' 9 40 "${S17}" 9 41 3 3 'm' 9 44 "${S18}" 9 45 3 3 's' 9 48 '' 9 48 0 0 \
-		'Interval . . ' 11 1 "${S19}" 11 22 4 4 'h' 11 26 "${S20}" 11 27 3 3 'm' 11 30 "${S21}" 11 31 3 3 's-' 11 34 "${S22}" 11 36 4 4 'h' 11 40 "${S23}" 11 41 3 3 'm' 11 44 "${S24}" 11 45 3 3 's' 11 48 '' 11 48 0 0 \
+		'Interval . . ' 5 1 "${S1}" 5 22 4 4 'h' 5 26 "${S2}" 5 27 3 3 'm' 5 30 "${S3}" 5 31 9 9 's-' 5 40 "${S4}" 5 42 4 4 'h' 5 46 "${S5}" 5 47 3 3 'm' 5 50 "${S6}" 5 51 9 9 's' 5 60 '' 5 60 0 0 \
+		'Interval . . ' 7 1 "${S7}" 7 22 4 4 'h' 7 26 "${S8}" 7 27 3 3 'm' 7 30 "${S9}" 7 31 9 9 's-' 7 40 "${S10}" 7 42 4 4 'h' 7 46 "${S11}" 7 47 3 3 'm' 7 50 "${S12}" 7 51 9 9 's' 7 60 '' 7 60 0 0 \
+		'Interval . . ' 9 1 "${S13}" 9 22 4 4 'h' 9 26 "${S14}" 9 27 3 3 'm' 9 30 "${S15}" 9 31 9 9 's-' 9 40 "${S16}" 9 42 4 4 'h' 9 46 "${S17}" 9 47 3 3 'm' 9 50 "${S18}" 9 51 9 9 's' 9 60 '' 9 60 0 0 \
+		'Interval . . ' 11 1 "${S19}" 11 22 4 4 'h' 11 26 "${S20}" 11 27 3 3 'm' 11 30 "${S21}" 11 31 9 9 's-' 11 40 "${S22}" 11 42 4 4 'h' 11 46 "${S23}" 11 47 3 3 'm' 11 50 "${S24}" 11 51 9 9 's' 11 60 '' 11 60 0 0 \
 		)" || \
 			rc=${?}
 		[ ${rc} -ne 1 -a ${rc} -ne 255 ] || \

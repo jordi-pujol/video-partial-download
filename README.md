@@ -19,14 +19,26 @@ and start downloading when pressing the **Download** button.
 
 Supports downloading **m3u8** multipart videos.
 
-Specifying intervals.
+**Specifying intervals.**
 
-Intervals are composed of two timestamps separated by hyphen, (- sign).
+Intervals are composed of two *timestamps* separated by hyphen, (- sign).
 
-In command line Timestamps may be written as:
+**Timestamps**
 
-1:2:0 (Hours, minutes, seconds)
+may be written in the command line as:
 
-'1h 2m' (blanks will be discarded)
+hours, minutes, seconds
 
-'2m1h' (ordering doesn't matter)
+1:2:0
+
+blanks will be discarded
+
+'1h 2m'
+
+order doesn't matter
+
+'2m1h'
+
+these timestamps are equivalent:
+
+200, 200s, 200sec, 3:20, 3m20, 3m20s, '20 seconds 3 minutes'
