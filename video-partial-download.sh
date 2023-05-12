@@ -23,6 +23,15 @@
 #  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 #************************************************************************
 
+Extension() {
+	local f ext
+	printf '%s\n' "${@}" | \
+	while read -r f; do
+		ext="$(basename "${f}" | sed -rne '/.*\.([^.]+)$/s//\1/p')"
+		printf '%s\n' "${ext:-"mp4"}"
+	done
+}
+
 SecondsToHms() {
 	local time=${1}
 	printf "%d\t" $((time/3600)) $(((time%3600)/60)) $((time%60))
@@ -130,10 +139,40 @@ VlcGet() {
 		--stop-time ${eTime} \
 		--run-time $((4+eTime-sTime)) \
 		vlc://quit \
-		> "${TmpDir}$(basename "${title}").txt" 2>&1
+		> "${TmpDir}$(basename "${title}")-vlc.txt" 2>&1
 
 	if grep -qsEe "\[[[:xdigit:]]+\] access stream error:.*failure" \
-	"${TmpDir}$(basename "${title}").txt"|| \
+	"${TmpDir}$(basename "${title}")-vlc.txt"|| \
+	[ ! -s "${title}" ]; then
+		echo "Err: download file \"${title}\" does not exist"
+		return 1
+	fi
+	length=$(_fileSize "${title}")
+	echo "length of \"${title}\": $(_thsSep ${length}) bytes"
+	[ ${length} -ge $((lengthAprox*90/100)) ] || \
+		echo "Warn: download file \"${title}\" is too short"
+}
+
+FfmpegGet() {
+	local url="${1}" \
+		title="${2}" \
+		sTime="${3}" \
+		eTime="${4}" \
+		lengthAprox="${5}" \
+		length
+
+	echo "ffmpeg download \"${url}\" from $(_thsSep ${sTime}) to $(_thsSep ${eTime})," \
+		"$(_thsSep ${lengthAprox}) bytes"
+
+	ffmpeg -y \
+		-ss ${sTime} \
+		-t $((eTime-sTime)) \
+		-i "${url}" \
+		"${title}" \
+		> "${TmpDir}$(basename "${title}")-ffmpeg.txt" 2>&1
+
+	if grep -qsEe "\[[[:xdigit:]]+\] access stream error:.*failure" \
+	"${TmpDir}$(basename "${title}")-ffmpeg.txt"|| \
 	[ ! -s "${title}" ]; then
 		echo "Err: download file \"${title}\" does not exist"
 		return 1
@@ -147,10 +186,24 @@ VlcGet() {
 GetDuration() {
 	local url="${1}"
 	LANGUAGE=C \
-	ffprobe -hide_banner -i "${url}" 2>&1 | \
+	duration="$(ffprobe -hide_banner -i "${url}" 2>&1 | \
 		sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{
 		s//\1/;p;q}
-		${q1}'
+		${q1}')" || \
+		return 1
+}
+
+GetLengthAprox() {
+	local url="${1}" \
+		bitrate
+	[ -n "${duration}" ] || \
+		return 1
+	bitrate="$(ffprobe -hide_banner -i "${url}" 2>&1 | \
+		sed -nre '/^[[:blank:]]*Duration: .*bitrate: ([[:digit:]]+) kb\/s.*/{
+		s//\1/;p;q}
+		${q1}')" && \
+	printf '%d\n' $(($(TimestampToSeconds "${duration}")*bitrate*1000/8)) || \
+		return 1
 }
 
 GetLength() {
@@ -162,15 +215,17 @@ GetLength() {
 	wget --verbose -T 7 --no-check-certificate --spider "${url}" 2>&1 | \
 	sed -nre '/^Length: ([[:digit:]]+).*/{s//\1/;p;q};${q1}'); then
 		echo "Length of \"${url}\"=${length}, usign wget"
-	elif length=$( options="$(! set | \
-		grep -qsEe 'PROXY=.*(localhost|127\.0\.0\.1)' || {
-			printf "%s " "--noproxy"
-			sed -e 's/[^/]*\/\/\([^@]*@\)\?\([^:/]*\).*/\2/' <<< "${url}"
-		})"
-	LANGUAGE=C \
-	curl -sGI ${options} "${url}" 2>&1 | \
-	sed -nre '/^[Cc]ontent-[Ll]ength: ([[:digit:]]+).*/{s//\1/;p;q0};${q1}'); then
-		echo "Length of \"${url}\"=${length}, usign curl"
+#	elif length=$( options="$(! set | \
+#		grep -qsEe 'PROXY=.*(localhost|127\.0\.0\.1)' || {
+#			printf "%s " "--noproxy"
+#			sed -e 's/[^/]*\/\/\([^@]*@\)\?\([^:/]*\).*/\2/' <<< "${url}"
+#		})"
+#	LANGUAGE=C \
+#	curl -sGI ${options} "${url}" 2>&1 | \
+#	sed -nre '/^[Cc]ontent-[Ll]ength: ([[:digit:]]+).*/{s//\1/;p;q0};${q1}'); then
+#		echo "Length of \"${url}\"=${length}, usign curl"
+	elif length=$(GetLengthAprox "${url}"); then
+		LengthAprox=${length}
 	else
 		echo "Can't deduce length of \"${url}\""
 		return 1
@@ -196,8 +251,11 @@ GetLengthM3u8() {
 	dT=0
 	lT=0
 	while read -r partn; do
-		Ext="${Ext:-"${partn##*.}"}"
-		let "dT+=$(TimestampToSeconds "$(GetDuration "${partn}" || :)"),1"
+		Ext="${Ext:-"$(Extension "${partn}")"}"
+		let "dT+=$(duration=""
+			GetDuration "${partn}" && \
+			durationSeconds=$(TimestampToSeconds "${duration}") || :
+			echo ${durationSeconds:-0}),1" || :
 		let "lT+=$(length=""
 			GetLength "${partn}" 1>&2
 			echo ${length:-0}),1"
@@ -290,10 +348,11 @@ VerifyData() {
 
 	VideoUrl=""
 	if [ "${Url}" != "${urlPrev}" ]; then
-		if duration="$(GetDuration "${Url}")"; then
+		LengthAprox=""
+		if GetDuration "${Url}"; then
 			VideoUrl="${Url}"
 		elif VideoUrl="$(yt-dlp "${Url}" --get-url 2> "${TmpDir}yt-dlp.txt")"; then
-			duration="$(GetDuration "${VideoUrl}")" || :
+			GetDuration "${VideoUrl}" || :
 		else
 			grep -qsF "connection failed:" "${TmpDir}yt-dlp.txt" && \
 				echo "Err: connection failed to \"${Url}\"" || \
@@ -322,6 +381,7 @@ VerifyData() {
 			printf '%s\n' "Real video URL:" \
 				"\"${VideoUrl}\""
 		if [ "${VideoUrl}" != "${VideoUrlPrev}" ]; then
+			LengthAprox=""
 			Ext=""
 			if [[ ${VideoUrl} =~ .m3u8 ]] && \
 			GetLengthM3u8 "${VideoUrl}" || \
@@ -329,7 +389,7 @@ VerifyData() {
 				VideoUrlPrev="${VideoUrl}"
 				LengthPrev=${length}
 				DurationPrev="${duration}"
-				Ext="${Ext:-"${VideoUrl##*.}"}"
+				Ext="${Ext:-"$(Extension "${VideoUrl}")"}"
 				ExtPrev="${Ext}"
 			else
 				echo "Err: Can't find the video length"
@@ -513,7 +573,7 @@ Main() {
 		S22="" S23="" S24="0" \
 		VlcOptions \
 		Intervals \
-		i title playlist length rc
+		i title playlist length LengthAprox="" rc
 
 	mkdir -p "${TmpDir}"
 	VlcOptions=""
@@ -575,28 +635,34 @@ Main() {
 	exec > >(tee -a "${Msgs}")
 
 	if [ $(echo "${Intervals}" | wc -w) -eq 1 ]; then
+		( [ -n "${LengthAprox}" ] && \
+		FfmpegGet "${VideoUrl}" "${Title}" $((Is${Intervals})) \
+			$((Ie${Intervals})) $((Il${Intervals})) ) || \
 		VlcGet "${VideoUrl}" "${Title}" $((Is${Intervals})) \
-		$((Ie${Intervals})) $((Il${Intervals})) || \
-			echo "Err: error in vlc download"
+			$((Ie${Intervals})) $((Il${Intervals})) || \
+		echo "Err: error in download"
 	else
 		playlist="${TmpDir}playlist.txt"
 		: > "${playlist}"
 		Err=""
 		for i in ${Intervals}; do
 			title="${TmpDir}${i}.${Ext}"
-			if ! VlcGet "${VideoUrl}" "${title}" $((Is${i})) \
-			$((Ie${i})) $((Il${i})); then
-				echo "Err: error in vlc download, interval ${i}"
-				Err="y"
-			fi
+			( [ -n "${LengthAprox}" ] && \
+			FfmpegGet "${VideoUrl}" "${title}" $((Is${i})) \
+				$((Ie${i})) $((Il${i})) ) || \
+			VlcGet "${VideoUrl}" "${title}" $((Is${i})) \
+				$((Ie${i})) $((Il${i})) || {
+					echo "Err: error in download, interval ${i}"
+					Err="y"
+				}
 			echo "file '$(basename "${title}")'" >> "${playlist}"
 		done
 		if [ -z "${Err}" ]; then
 			echo "ffmpeg concat" $(cat "${playlist}")
 			if ! ( cd "${TmpDir}"
-			ffmpeg -nostdin -hide_banner -y \
+			ffmpeg -nostdin -hide_banner -hwaccel auto -y \
 			-f concat -safe 0 -i "$(basename "${playlist}")" \
-			-c:v copy "${CurrDir}${Title}" \
+			-map 0 -c copy "${CurrDir}${Title}" \
 			> "${TmpDir}${Title}.txt" 2>&1
 			); then
 				echo "Err: error in video concatenation"
