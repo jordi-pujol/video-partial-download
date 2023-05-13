@@ -125,11 +125,11 @@ VlcGet() {
 		title="${2}" \
 		sTime="${3}" \
 		eTime="${4}" \
-		lengthAprox="${5}" \
+		lengthExpected="${5}" \
 		length
 
 	echo "vlc download \"${url}\" from $(_thsSep ${sTime}) to $(_thsSep ${eTime})," \
-		"$(_thsSep ${lengthAprox}) bytes"
+		"$(_thsSep ${lengthExpected}) bytes"
 
 	vlc ${VlcOptions} \
 		--no-one-instance \
@@ -149,7 +149,7 @@ VlcGet() {
 	fi
 	length=$(_fileSize "${title}")
 	echo "length of \"${title}\": $(_thsSep ${length}) bytes"
-	[ ${length} -ge $((lengthAprox*90/100)) ] || \
+	[ ${length} -ge $((lengthExpected*90/100)) ] || \
 		echo "Warn: download file \"${title}\" is too short"
 }
 
@@ -158,11 +158,11 @@ FfmpegGet() {
 		title="${2}" \
 		sTime="${3}" \
 		eTime="${4}" \
-		lengthAprox="${5}" \
+		lengthExpected="${5}" \
 		length
 
 	echo "ffmpeg download \"${url}\" from $(_thsSep ${sTime}) to $(_thsSep ${eTime})," \
-		"$(_thsSep ${lengthAprox}) bytes"
+		"$(_thsSep ${lengthExpected}) bytes"
 
 	ffmpeg -y \
 		-ss ${sTime} \
@@ -179,7 +179,7 @@ FfmpegGet() {
 	fi
 	length=$(_fileSize "${title}")
 	echo "length of \"${title}\": $(_thsSep ${length}) bytes"
-	[ ${length} -ge $((lengthAprox*90/100)) ] || \
+	[ ${length} -ge $((lengthExpected*90/100)) ] || \
 		echo "Warn: download file \"${title}\" is too short"
 }
 
@@ -215,17 +215,9 @@ GetLength() {
 	wget --verbose -T 7 --no-check-certificate --spider "${url}" 2>&1 | \
 	sed -nre '/^Length: ([[:digit:]]+).*/{s//\1/;p;q};${q1}'); then
 		echo "Length of \"${url}\"=${length}, usign wget"
-#	elif length=$( options="$(! set | \
-#		grep -qsEe 'PROXY=.*(localhost|127\.0\.0\.1)' || {
-#			printf "%s " "--noproxy"
-#			sed -e 's/[^/]*\/\/\([^@]*@\)\?\([^:/]*\).*/\2/' <<< "${url}"
-#		})"
-#	LANGUAGE=C \
-#	curl -sGI ${options} "${url}" 2>&1 | \
-#	sed -nre '/^[Cc]ontent-[Ll]ength: ([[:digit:]]+).*/{s//\1/;p;q0};${q1}'); then
-#		echo "Length of \"${url}\"=${length}, usign curl"
 	elif length=$(GetLengthAprox "${url}"); then
 		LengthAprox=${length}
+		echo "Warn: only ffmpeg finds the video file corresponding to \"${url}\""
 	else
 		echo "Can't deduce length of \"${url}\""
 		return 1
