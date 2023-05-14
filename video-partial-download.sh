@@ -23,7 +23,36 @@
 #  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 #************************************************************************
 
-Extension() {
+_fileSize() {
+	local f="${1}"
+	stat --format '%s' "${f}"
+}
+
+_line() {
+	local line=${1}
+	shift
+	awk -v line="${line}" \
+		'NR == line {print; exit}' \
+		<<< "${@}"
+}
+
+_thsSep() {
+	printf "%'d\n" "${@}"
+}
+
+_natural() {
+	local v
+	let "line++,1"
+	v="$(_line $((line+2)) "${Res}" | \
+		sed -re '/^[[:blank:]]*$/s//0/')"
+	[ -n "${v:=0}" ] && \
+	s="$(printf '%d\n' "${v}" 2> /dev/null)" || {
+		s="${v}"
+		return 1
+	}
+}
+
+_extension() {
 	local f ext
 	printf '%s\n' "${@}" | \
 	while read -r f; do
@@ -91,58 +120,75 @@ SecondsToTimestamp() {
 	printf "%s\n" "${timestamp:-0}"
 }
 
-_fileSize() {
-	local f="${1}"
-	stat --format '%s' "${f}"
-}
-
-_line() {
-	local line=${1}
-	shift
-	awk -v line="${line}" \
-		'NR == line {print; exit}' \
-		<<< "${@}"
-}
-
-_thsSep() {
-	printf "%'d\n" "${@}"
-}
-
-_natural() {
-	local v
-	let "line++,1"
-	v="$(_line $((line+2)) "${Res}" | \
-		sed -re '/^[[:blank:]]*$/s//0/')"
-	[ -n "${v:=0}" ] && \
-	s="$(printf '%d\n' "${v}" 2> /dev/null)" || {
-		s="${v}"
-		return 1
-	}
-}
-
-VlcGet() {
+UrlData() {
 	local url="${1}" \
-		title="${2}" \
-		sTime="${3}" \
-		eTime="${4}" \
-		lengthExpected="${5}" \
+		dataType="${2}"
+	LANGUAGE=C \
+	wget -q -T 7 --no-check-certificate --spider \
+	--server-response -O /dev/null "${url}" 2>&1 | \
+		awk -v dataType="${dataType}" \
+		'$1 == dataType {$1=""; gsub(/^[[:blank:]]+|[[:blank:]]+$/, ""); \
+		print; rc=-1; exit}
+		END{exit rc+1}'
+}
+
+ContentType() {
+	local url="${1}"
+	UrlData "${url}" "Content-Type:"
+}
+
+ContentTypeM3u8() {
+	local url="${1}"
+	ContentType "${url}" | \
+		grep -qswF 'application/x-mpegURL'
+}
+
+ContentTypeVideo() {
+	local url="${1}"
+	ContentType "${url}" | \
+		grep -qswEe 'video|application/x-mpegURL'
+}
+
+ContentTypeHtml() {
+	local url="${1}"
+	ContentType "${url}" | \
+		grep -qswF 'text/html'
+}
+
+ContentLength() {
+	local url="${1}"
+	UrlData "${url}" "Content-Length:"
+}
+
+GetVideoPart() {
+	local app="${1}" \
 		length
 
-	echo "vlc download \"${url}\" from $(_thsSep ${sTime}) to $(_thsSep ${eTime})," \
+	echo "${app} download \"${url}\" from $(_thsSep ${sTime}) to $(_thsSep ${eTime})," \
 		"$(_thsSep ${lengthExpected}) bytes"
 
-	vlc ${VlcOptions} \
-		--no-one-instance \
-		"${url}" \
-		--sout "#std{access=file,dst='${title}'}" \
-		--start-time ${sTime} \
-		--stop-time ${eTime} \
-		--run-time $((4+eTime-sTime)) \
-		vlc://quit \
-		> "${TmpDir}$(basename "${title}")-vlc.txt" 2>&1
+	case "${app}" in
+	vlc)
+		vlc ${VlcOptions} \
+			--no-one-instance \
+			"${url}" \
+			--sout "#std{access=file,dst='${title}'}" \
+			--start-time ${sTime} \
+			--stop-time ${eTime} \
+			--run-time $((4+eTime-sTime)) \
+			vlc://quit
+		;;
+	ffmpeg)
+		ffmpeg -y \
+			-ss ${sTime} \
+			-t $((eTime-sTime)) \
+			-i "${url}" \
+			"${title}"
+		;;
+	esac > "${TmpDir}$(basename "${title}")-${app}.txt" 2>&1
 
 	if grep -qsEe "\[[[:xdigit:]]+\] access stream error:.*failure" \
-	"${TmpDir}$(basename "${title}")-vlc.txt"|| \
+	"${TmpDir}$(basename "${title}")-${app}.txt"|| \
 	[ ! -s "${title}" ]; then
 		echo "Err: download file \"${title}\" does not exist"
 		return 1
@@ -153,34 +199,26 @@ VlcGet() {
 		echo "Warn: download file \"${title}\" is too short"
 }
 
-FfmpegGet() {
+GetVideo() {
 	local url="${1}" \
 		title="${2}" \
 		sTime="${3}" \
 		eTime="${4}" \
-		lengthExpected="${5}" \
-		length
+		lengthExpected="${5}"
+	ContentTypeVideo "${url}" && \
+	GetVideoPart "vlc" || \
+		GetVideoPart "ffmpeg"
+}
 
-	echo "ffmpeg download \"${url}\" from $(_thsSep ${sTime}) to $(_thsSep ${eTime})," \
-		"$(_thsSep ${lengthExpected}) bytes"
-
-	ffmpeg -y \
-		-ss ${sTime} \
-		-t $((eTime-sTime)) \
-		-i "${url}" \
-		"${title}" \
-		> "${TmpDir}$(basename "${title}")-ffmpeg.txt" 2>&1
-
-	if grep -qsEe "\[[[:xdigit:]]+\] access stream error:.*failure" \
-	"${TmpDir}$(basename "${title}")-ffmpeg.txt"|| \
-	[ ! -s "${title}" ]; then
-		echo "Err: download file \"${title}\" does not exist"
+GetMux() {
+	local url="${1}"
+	LANGUAGE=C \
+	Mux="$(ffprobe -hide_banner -i "${url}" 2>&1 | \
+		sed -nre '/^[[:blank:]]*Input #0, (.+), from .*/{
+		s//\1/;s/,/ /g;s/matroska/mkv/g;p;q}')" || :
+	[ -n "${Mux}" ] && \
+	printf '%s\n' "${Mux}" || \
 		return 1
-	fi
-	length=$(_fileSize "${title}")
-	echo "length of \"${title}\": $(_thsSep ${length}) bytes"
-	[ ${length} -ge $((lengthExpected*90/100)) ] || \
-		echo "Warn: download file \"${title}\" is too short"
 }
 
 GetDuration() {
@@ -188,8 +226,8 @@ GetDuration() {
 	LANGUAGE=C \
 	duration="$(ffprobe -hide_banner -i "${url}" 2>&1 | \
 		sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{
-		s//\1/;p;q}
-		${q1}')" || \
+		s//\1/;p;q}')" || :
+	[ -n "${duration}" ] || \
 		return 1
 }
 
@@ -200,8 +238,8 @@ GetLengthAprox() {
 		return 1
 	bitrate="$(ffprobe -hide_banner -i "${url}" 2>&1 | \
 		sed -nre '/^[[:blank:]]*Duration: .*bitrate: ([[:digit:]]+) kb\/s.*/{
-		s//\1/;p;q}
-		${q1}')" && \
+		s//\1/;p;q}')" || :
+	[ -n "${bitrate}" ] && \
 	printf '%d\n' $(($(TimestampToSeconds "${duration}")*bitrate*1000/8)) || \
 		return 1
 }
@@ -211,9 +249,8 @@ GetLength() {
 	if [ -s "${url}" ]; then
 		length=$(_fileSize "${url}")
 		echo "Length of \"${url}\"=${length}, local file"
-	elif length=$(LANGUAGE=C \
-	wget --verbose -T 7 --no-check-certificate --spider "${url}" 2>&1 | \
-	sed -nre '/^Length: ([[:digit:]]+).*/{s//\1/;p;q};${q1}'); then
+	elif ContentTypeVideo "${url}" && \
+	length="$(ContentLength "${url}")"; then
 		echo "Length of \"${url}\"=${length}, usign wget"
 	elif length=$(GetLengthAprox "${url}"); then
 		LengthAprox=${length}
@@ -227,8 +264,10 @@ GetLength() {
 GetLengthM3u8() {
 	local url="${1}" \
 		partn lT dT
+	ContentTypeM3u8 "${url}" || \
+		return 1
 	LANGUAGE=C \
-	wget --verbose -T 7 --no-check-certificate \
+	wget -q -T 7 --no-check-certificate \
 	-O "${TmpDir}$(basename "${url}")" \
 	"${url}" \
 	2> "${TmpDir}$(basename "${url}").txt" || {
@@ -243,13 +282,14 @@ GetLengthM3u8() {
 	dT=0
 	lT=0
 	while read -r partn; do
-		Ext="${Ext:-"$(Extension "${partn}")"}"
+		Ext="${Ext:-"$(_extension "${partn}")"}"
 		let "dT+=$(duration=""
-			GetDuration "${partn}" && \
-			durationSeconds=$(TimestampToSeconds "${duration}") || :
+			GetDuration "${partn}" >&2 && \
+			durationSeconds=$(TimestampToSeconds "${duration}") || \
+				durationSeconds=""
 			echo ${durationSeconds:-0}),1" || :
 		let "lT+=$(length=""
-			GetLength "${partn}" 1>&2
+			GetLength "${partn}" >&2
 			echo ${length:-0}),1"
 	done 2>&1 < <(LANGUAGE=C \
 	ffprobe -hide_banner -i "${url}" 2>&1 | \
@@ -303,15 +343,15 @@ VerifyData() {
 		return 0
 	}
 	Title="$(_line 2 "${Res}")"
-	urlPrev="$(_line 1 "${ResOld}")"
+	urlPrev="$(_line 1 "${ResPrev}")"
 	Res="$(sed -re '3,$ {/^[[:blank:]]*$/s//0/}' <<< "${Res}")"
 	[ "${Url}" != "${urlPrev}" -o -z "${Title}" ] || \
-	[ "$(tail -n +3 <<< "${Res}")" != "$(tail -n +3 <<< "${ResOld}")" ] || \
+	[ "$(tail -n +3 <<< "${Res}")" != "$(tail -n +3 <<< "${ResPrev}")" ] || \
 	[ -z "${Intervals}" ] || {
 		cat "${Msgs}.bak"
 		return 0
 	}
-	ResOld="${Res}"
+	ResPrev="${Res}"
 	{ echo '#!/bin/sh'
 		printf '"%s" \\\n' "${0}" "${Url}" "${Title}"
 		r="$(tail -n +3 <<< "${Res}")"
@@ -375,13 +415,12 @@ VerifyData() {
 		if [ "${VideoUrl}" != "${VideoUrlPrev}" ]; then
 			LengthAprox=""
 			Ext=""
-			if [[ ${VideoUrl} =~ .m3u8 ]] && \
-			GetLengthM3u8 "${VideoUrl}" || \
+			if GetLengthM3u8 "${VideoUrl}" || \
 			GetLength "${VideoUrl}"; then
 				VideoUrlPrev="${VideoUrl}"
 				LengthPrev=${length}
 				DurationPrev="${duration}"
-				Ext="${Ext:-"$(Extension "${VideoUrl}")"}"
+				Ext="${Ext:-"$(_extension "${VideoUrl}")"}"
 				ExtPrev="${Ext}"
 			else
 				echo "Err: Can't find the video length"
@@ -413,14 +452,21 @@ VerifyData() {
 				Title="${Title%.*}"
 			}
 		[ -n "${Title}" ] || \
-			Title="$(LANGUAGE=C \
-			wget -T 7 --no-check-certificate -O - "${Url}" | \
-			awk '/<title>.*<\/title>/{ \
-			gsub(/.*<title>|<\/title>.*/,""); print; exit}')" || :
+			if ContentTypeHtml "${Url}"; then
+				Title="$(LANGUAGE=C \
+				wget -q -T 7 --no-check-certificate -O - "${Url}" 2>&1 | \
+				awk '/<title>.*<\/title>/{ \
+				gsub(/.*<title>|<\/title>.*/,""); print; exit}')" || :
+			fi
 		[ -z "${Title}" ] && \
 			Err="y" || \
 			echo "Setting title to \"${Title}\""
 	fi 2> /dev/null
+
+	printf '%s\n' "ogm" "ogg" "nut" "ts" "mpg" "mp4" \
+	"mov" "flv" "avi" "asf" "wmv" | \
+	grep -qsxF "${Ext}" || \
+		Ext="$(awk '{print $1}' < <(GetMux "${VideoUrl}" || echo "ps"))"
 
 	Intervals=""
 	Ts=0
@@ -540,7 +586,7 @@ VerifyData() {
 	fi
 	[ -z "${Err}" ] || {
 		echo "Err: Invalid data"
-		ResOld="${ResOld}${LF}${Err}"
+		ResPrev="${ResPrev}${LF}${Err}"
 	}
 }
 
@@ -553,7 +599,7 @@ Main() {
 
 	local Url="" Title="" StdOut \
 		VideoUrl VideoUrlPrev DurationPrev LengthPrev ExtPrev \
-		Res ResOld Err Ext \
+		Res ResPrev Err Ext Mux \
 		Sh Sm Ss \
 		S1="" S2="" S3="0" \
 		S4="" S5="" S6="0" \
@@ -580,7 +626,7 @@ Main() {
 	fi
 
 	Res=""
-	ResOld=""
+	ResPrev=""
 	VideoUrlPrev=""
 	LengthPrev=0
 	DurationPrev=""
@@ -627,26 +673,24 @@ Main() {
 	exec > >(tee -a "${Msgs}")
 
 	if [ $(echo "${Intervals}" | wc -w) -eq 1 ]; then
-		( [ -n "${LengthAprox}" ] && \
-		FfmpegGet "${VideoUrl}" "${Title}" $((Is${Intervals})) \
-			$((Ie${Intervals})) $((Il${Intervals})) ) || \
-		VlcGet "${VideoUrl}" "${Title}" $((Is${Intervals})) \
-			$((Ie${Intervals})) $((Il${Intervals})) || \
-		echo "Err: error in download"
+		GetVideo "${VideoUrl}" "${Title}" $((Is${Intervals})) \
+		$((Ie${Intervals})) $((Il${Intervals})) || \
+		{
+			echo "Err: error in download"
+			Err="y"
+		}
 	else
 		playlist="${TmpDir}playlist.txt"
 		: > "${playlist}"
 		Err=""
 		for i in ${Intervals}; do
 			title="${TmpDir}${i}.${Ext}"
-			( [ -n "${LengthAprox}" ] && \
-			FfmpegGet "${VideoUrl}" "${title}" $((Is${i})) \
-				$((Ie${i})) $((Il${i})) ) || \
-			VlcGet "${VideoUrl}" "${title}" $((Is${i})) \
-				$((Ie${i})) $((Il${i})) || {
-					echo "Err: error in download, interval ${i}"
-					Err="y"
-				}
+			GetVideo "${VideoUrl}" "${title}" \
+			$((Is${i})) $((Ie${i})) $((Il${i})) || \
+			{
+				echo "Err: error in download, interval ${i}"
+				Err="y"
+			}
 			echo "file '$(basename "${title}")'" >> "${playlist}"
 		done
 		if [ -z "${Err}" ]; then
