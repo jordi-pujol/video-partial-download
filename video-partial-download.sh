@@ -57,7 +57,8 @@ _extension() {
 	printf '%s\n' "${@}" | \
 	while read -r f; do
 		ext="$(basename "${f}" | sed -rne '/.*\.([^.]+)$/s//\1/p')"
-		printf '%s\n' "${ext:-"mp4"}"
+		printf '%s\n' \
+			"${ext:-"$(awk '{print $1}' < <(GetMux "${f}"))"}"
 	done
 }
 
@@ -211,14 +212,13 @@ GetVideo() {
 }
 
 GetMux() {
-	local url="${1}"
+	local url="${1}" \
+		mux
 	LANGUAGE=C \
-	Mux="$(ffprobe -hide_banner -i "${url}" 2>&1 | \
+	mux="$(ffprobe -hide_banner -i "${url}" 2>&1 | \
 		sed -nre '/^[[:blank:]]*Input #0, (.+), from .*/{
 		s//\1/;s/,/ /g;s/matroska/mkv/g;p;q}')" || :
-	[ -n "${Mux}" ] && \
-	printf '%s\n' "${Mux}" || \
-		return 1
+	printf '%s\n' "${mux:-"ps"}"
 }
 
 GetDuration() {
@@ -466,7 +466,7 @@ VerifyData() {
 	printf '%s\n' "ogm" "ogg" "nut" "ts" "mpg" "mp4" \
 	"mov" "flv" "avi" "asf" "wmv" | \
 	grep -qsxF "${Ext}" || \
-		Ext="$(awk '{print $1}' < <(GetMux "${VideoUrl}" || echo "ps"))"
+		Ext="$(awk '{print $1}' < <(GetMux "${VideoUrl}"))"
 
 	Intervals=""
 	Ts=0
@@ -599,7 +599,7 @@ Main() {
 
 	local Url="" Title="" StdOut \
 		VideoUrl VideoUrlPrev DurationPrev LengthPrev ExtPrev \
-		Res ResPrev Err Ext Mux \
+		Res ResPrev Err Ext \
 		Sh Sm Ss \
 		S1="" S2="" S3="0" \
 		S4="" S5="" S6="0" \
