@@ -56,9 +56,7 @@ _extension() {
 	local f ext
 	printf '%s\n' "${@}" | \
 	while read -r f; do
-		ext="$(basename "${f}" | sed -rne '/.*\.([^.]+)$/s//\1/p')"
-		printf '%s\n' \
-			"${ext:-"$(awk '{print $1}' < <(GetMux "${f}"))"}"
+		basename "${f}" | sed -rne '/.*\.([^.]+)$/s//\1/p'
 	done
 }
 
@@ -134,8 +132,16 @@ UrlData() {
 }
 
 ContentType() {
-	local url="${1}"
-	UrlData "${url}" "Content-Type:"
+	local url="${1}" \
+		mux
+	if [ -s "${url}" ]; then
+		printf '%s\n' "ogm" "ogg" "nut" "ts" "mpg" "mp4" \
+		"mov" "flv" "avi" "asf" "wmv" "mkv" | \
+		grep -qsxF "$(GetMux "${VideoUrl}" | tr -s '[[:blank:]]' '\n')" && \
+			echo "video"
+	else
+		UrlData "${url}" "Content-Type:"
+	fi
 }
 
 ContentTypeM3u8() {
@@ -158,7 +164,9 @@ ContentTypeHtml() {
 
 ContentLength() {
 	local url="${1}"
-	UrlData "${url}" "Content-Length:"
+	[ -s "${url}" ] && \
+		_fileSize "${url}" || \
+		UrlData "${url}" "Content-Length:"
 }
 
 GetVideoPart() {
@@ -170,6 +178,7 @@ GetVideoPart() {
 
 	case "${app}" in
 	vlc)
+		LANGUAGE=C \
 		vlc ${VlcOptions} \
 			--no-one-instance \
 			"${url}" \
@@ -180,6 +189,7 @@ GetVideoPart() {
 			vlc://quit
 		;;
 	ffmpeg)
+		LANGUAGE=C \
 		ffmpeg -y \
 			-ss ${sTime} \
 			-t $((eTime-sTime)) \
@@ -215,7 +225,8 @@ GetMux() {
 	local url="${1}" \
 		mux
 	LANGUAGE=C \
-	mux="$(ffprobe -hide_banner -i "${url}" 2>&1 | \
+	mux="$(LANGUAGE=C \
+		ffprobe -hide_banner -i "${url}" 2>&1 | \
 		sed -nre '/^[[:blank:]]*Input #0, (.+), from .*/{
 		s//\1/;s/,/ /g;s/matroska/mkv/g;p;q}')" || :
 	printf '%s\n' "${mux:-"ps"}"
@@ -224,7 +235,8 @@ GetMux() {
 GetDuration() {
 	local url="${1}"
 	LANGUAGE=C \
-	duration="$(ffprobe -hide_banner -i "${url}" 2>&1 | \
+	duration="$(LANGUAGE=C \
+		ffprobe -hide_banner -i "${url}" 2>&1 | \
 		sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{
 		s//\1/;p;q}')" || :
 	[ -n "${duration}" ] || \
@@ -236,7 +248,8 @@ GetLengthAprox() {
 		bitrate
 	[ -n "${duration}" ] || \
 		return 1
-	bitrate="$(ffprobe -hide_banner -i "${url}" 2>&1 | \
+	bitrate="$(LANGUAGE=C \
+		ffprobe -hide_banner -i "${url}" 2>&1 | \
 		sed -nre '/^[[:blank:]]*Duration: .*bitrate: ([[:digit:]]+) kb\/s.*/{
 		s//\1/;p;q}')" || :
 	[ -n "${bitrate}" ] && \
@@ -352,32 +365,6 @@ VerifyData() {
 		return 0
 	}
 	ResPrev="${Res}"
-	{ echo '#!/bin/sh'
-		printf '"%s" \\\n' "${0}" "${Url}" "${Title}"
-		r="$(tail -n +3 <<< "${Res}")"
-		while [ $(wc -l <<< "${r}") -ge 6 ]; do
-			s="$(head -n 6 <<< "${r}")"
-			r="$(tail -n +7 <<< "${r}")"
-			grep -qsxvF '0' <<< "${s}" || \
-				continue
-			printf " '"
-			sep=""
-			while read -r v; do
-				printf '%s%s' "${sep}" "${v}"
-				sep=":"
-			done < <(head -n 3 <<< "${s}")
-			printf "-"
-			sep=""
-			while read -r v; do
-				printf '%s%s' "${sep}" "${v}"
-				sep=":"
-			done < <(tail -n +4 <<< "${s}")
-			printf "'"
-		done
-		echo
-	} > "${TmpDir}cmd.sh"
-	tail -n +2 "${TmpDir}cmd.sh"
-
 	VideoUrl=""
 	if [ "${Url}" != "${urlPrev}" ]; then
 		LengthAprox=""
@@ -443,8 +430,13 @@ VerifyData() {
 			echo ", Warn: length is too short")"
 
 	if [ -z "${Title}" ]; then
-		Title="$(basename "$(yt-dlp "${Url}" --get-title | \
-		sed -re "/[\"']+/s///g")")" || :
+		[ ! -s "${Url}" ] || {
+			Title="$(basename "${Url}")"
+			Title="${Title%.*}"
+		}
+		[ -n "${Title}" ] || \
+			Title="$(basename "$(yt-dlp "${Url}" --get-title | \
+			sed -re "/[\"']+/s///g")")" || :
 		[ -n "${Title}" -o -z "${VideoUrl}" ] || \
 			Title="$(basename "$(yt-dlp "${VideoUrl}" --get-title | \
 			sed -re "/[\"']+/s///g")")" || {
@@ -464,10 +456,12 @@ VerifyData() {
 	fi 2> /dev/null
 
 	printf '%s\n' "ogm" "ogg" "nut" "ts" "mpg" "mp4" \
-	"mov" "flv" "avi" "asf" "wmv" | \
+	"mov" "flv" "avi" "asf" "wmv" "mkv" | \
 	grep -qsxF "${Ext}" || \
 		Ext="$(awk '{print $1}' < <(GetMux "${VideoUrl}"))"
 
+	[ ${durationSeconds} -ne 0 ] || \
+		Err="y"
 	Intervals=""
 	Ts=0
 	Tl=0
@@ -544,15 +538,10 @@ VerifyData() {
 		s="$(eval echo "\${S${line}:-0}")"
 		si="${si}$(SecondsToTimestamp ${se})"
 
-		[ ${durationSeconds} -ne 0 ] || {
-			Err="${Err:-${ierr}}"
-			echo "${si} from $(_thsSep ${ss}) to $(_thsSep ${se})"
-			continue
-		}
-
 		recTime=0
 		recLength=0
-		if [ ${se} -gt $((durationSeconds)) ]; then
+		if [ ${durationSeconds} -ne 0 ] && \
+		[ ${se} -gt ${durationSeconds} ]; then
 			si="${si} out of limits"
 			ierr="y"
 		elif [ ${ss} -lt ${se} ]; then
@@ -588,6 +577,32 @@ VerifyData() {
 		echo "Err: Invalid data"
 		ResPrev="${ResPrev}${LF}${Err}"
 	}
+
+	{ echo '#!/bin/sh'
+		printf '"%s" \\\n' "${0}" "${Url}" "${Title}"
+		r="$(tail -n +3 <<< "${Res}")"
+		while [ $(wc -l <<< "${r}") -ge 6 ]; do
+			s="$(head -n 6 <<< "${r}")"
+			r="$(tail -n +7 <<< "${r}")"
+			grep -qsxvF '0' <<< "${s}" || \
+				continue
+			printf " '"
+			sep=""
+			while read -r v; do
+				printf '%s%s' "${sep}" "${v}"
+				sep=":"
+			done < <(head -n 3 <<< "${s}")
+			printf "-"
+			sep=""
+			while read -r v; do
+				printf '%s%s' "${sep}" "${v}"
+				sep=":"
+			done < <(tail -n +4 <<< "${s}")
+			printf "'"
+		done
+		echo
+	} > "${TmpDir}cmd.sh"
+	tail -n +2 "${TmpDir}cmd.sh"
 }
 
 Main() {
@@ -696,6 +711,7 @@ Main() {
 		if [ -z "${Err}" ]; then
 			echo "ffmpeg concat" $(cat "${playlist}")
 			if ! ( cd "${TmpDir}"
+			LANGUAGE=C \
 			ffmpeg -nostdin -hide_banner -hwaccel auto -y \
 			-f concat -safe 0 -i "$(basename "${playlist}")" \
 			-map 0 -c copy "${CurrDir}${Title}" \
