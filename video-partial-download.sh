@@ -131,9 +131,19 @@ UrlData() {
 		END{exit rc+1}'
 }
 
-ContentType() {
+GetMux() {
 	local url="${1}" \
 		mux
+	LANGUAGE=C \
+	mux="$(LANGUAGE=C \
+		ffprobe -hide_banner -i "${url}" 2>&1 | \
+		sed -nre '/^[[:blank:]]*Input #0, (.+), from .*/{
+		s//\1/;s/,/ /g;s/matroska/mkv/g;p;q}')" || :
+	printf '%s\n' "${mux:-"ps"}"
+}
+
+ContentType() {
+	local url="${1}"
 	if [ -s "${url}" ]; then
 		printf '%s\n' "ogm" "ogg" "nut" "ts" "mpg" "mp4" \
 		"mov" "flv" "avi" "asf" "wmv" "mkv" | \
@@ -219,17 +229,6 @@ GetVideo() {
 	ContentTypeVideo "${url}" && \
 	GetVideoPart "vlc" || \
 		GetVideoPart "ffmpeg"
-}
-
-GetMux() {
-	local url="${1}" \
-		mux
-	LANGUAGE=C \
-	mux="$(LANGUAGE=C \
-		ffprobe -hide_banner -i "${url}" 2>&1 | \
-		sed -nre '/^[[:blank:]]*Input #0, (.+), from .*/{
-		s//\1/;s/,/ /g;s/matroska/mkv/g;p;q}')" || :
-	printf '%s\n' "${mux:-"ps"}"
 }
 
 GetDuration() {
