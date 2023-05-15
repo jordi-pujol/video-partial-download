@@ -78,7 +78,7 @@ TimestampToSeconds() {
 		d*) factor=86400 ;;
 		0) : ;;
 		[[:digit:]]*) let "time+=factor*word,1" ;;
-		*) return 1 ;;
+		*) time=0; break ;; # don't return error
 		esac
 	done < <(sed -r \
 	-e '/[[:blank:]]+/s///g' \
@@ -97,7 +97,7 @@ TimestampToSeconds() {
 Timestamp() {
 	local time="${@}"
 	printf "%02d:%02d:%02d\n" \
-		$(SecondsToHms $(TimestampToSeconds "${time}" || echo 0))
+		$(SecondsToHms $(TimestampToSeconds "${time}"))
 }
 
 SecondsToTimestamp() {
@@ -139,14 +139,14 @@ GetMux() {
 		ffprobe -hide_banner -i "${url}" 2>&1 | \
 		sed -nre '/^[[:blank:]]*Input #0, (.+), from .*/{
 		s//\1/;s/,/ /g;s/matroska/mkv/g;p;q}')" || :
-	printf '%s\n' "${mux:-"ps"}"
+	printf '%s\n' "${mux}"
 }
 
+# returns err when unknown
 ContentType() {
 	local url="${1}"
 	if [ -s "${url}" ]; then
-		printf '%s\n' "ogm" "ogg" "nut" "ts" "mpg" "mp4" \
-		"mov" "flv" "avi" "asf" "wmv" "mkv" | \
+		printf '%s\n' ${VIDEOEXTENSIONS} | \
 		grep -qsxF "$(GetMux "${VideoUrl}" | tr -s '[[:blank:]]' '\n')" && \
 			echo "video"
 	else
@@ -154,24 +154,28 @@ ContentType() {
 	fi
 }
 
+# returns err when unknown
 ContentTypeM3u8() {
 	local url="${1}"
 	ContentType "${url}" | \
 		grep -qswF 'application/x-mpegURL'
 }
 
+# returns err when unknown
 ContentTypeVideo() {
 	local url="${1}"
 	ContentType "${url}" | \
 		grep -qswEe 'video|application/x-mpegURL'
 }
 
+# returns err when unknown
 ContentTypeHtml() {
 	local url="${1}"
 	ContentType "${url}" | \
 		grep -qswF 'text/html'
 }
 
+# returns err when unknown
 ContentLength() {
 	local url="${1}"
 	[ -s "${url}" ] && \
@@ -179,67 +183,67 @@ ContentLength() {
 		UrlData "${url}" "Content-Length:"
 }
 
-GetVideoPart() {
-	local app="${1}" \
-		length
+GetVideo() {
+	local url="${1}" \
+		title="${2}" \
+		sTime="${3}" \
+		eTime="${4}" \
+		lengthExpected="${5}" \
+		app length
+	for app in $(! ContentTypeVideo "${url}" || echo "vlc") "ffmpeg"; do
+		echo "${app} download \"${url}\" from $(_thsSep ${sTime}) to $(_thsSep ${eTime})," \
+			"$(_thsSep ${lengthExpected}) bytes"
+		case "${app}" in
+		vlc)
+			LANGUAGE=C \
+			vlc ${VlcOptions} \
+				--no-one-instance \
+				"${url}" \
+				--sout "#std{access=file,dst='${title}'}" \
+				--start-time ${sTime} \
+				--stop-time ${eTime} \
+				--run-time $((4+eTime-sTime)) \
+				vlc://quit
+			;;
+		ffmpeg)
+			LANGUAGE=C \
+			ffmpeg -y \
+				-ss ${sTime} \
+				-t $((eTime-sTime)) \
+				-i "${url}" \
+				"${title}"
+			;;
+		esac > "${TmpDir}$(basename "${title}")-${app}.txt" 2>&1
 
-	echo "${app} download \"${url}\" from $(_thsSep ${sTime}) to $(_thsSep ${eTime})," \
-		"$(_thsSep ${lengthExpected}) bytes"
-
-	case "${app}" in
-	vlc)
-		LANGUAGE=C \
-		vlc ${VlcOptions} \
-			--no-one-instance \
-			"${url}" \
-			--sout "#std{access=file,dst='${title}'}" \
-			--start-time ${sTime} \
-			--stop-time ${eTime} \
-			--run-time $((4+eTime-sTime)) \
-			vlc://quit
-		;;
-	ffmpeg)
-		LANGUAGE=C \
-		ffmpeg -y \
-			-ss ${sTime} \
-			-t $((eTime-sTime)) \
-			-i "${url}" \
-			"${title}"
-		;;
-	esac > "${TmpDir}$(basename "${title}")-${app}.txt" 2>&1
-
-	if grep -qsEe "\[[[:xdigit:]]+\] access stream error:.*failure" \
-	"${TmpDir}$(basename "${title}")-${app}.txt"|| \
-	[ ! -s "${title}" ]; then
-		echo "Err: download file \"${title}\" does not exist"
+		if grep -qsEe "\[[[:xdigit:]]+\] access stream error:.*failure" \
+		"${TmpDir}$(basename "${title}")-${app}.txt" || \
+		[ ! -s "${title}" ]; then
+			echo "Warn: ${app} download file \"${title}\" does not exist"
+		else
+			break
+		fi
+	done
+	[ -s "${title}" ] || {
+		Err="y"
 		return 1
-	fi
+	}
 	length=$(_fileSize "${title}")
 	echo "length of \"${title}\": $(_thsSep ${length}) bytes"
 	[ ${length} -ge $((lengthExpected*90/100)) ] || \
 		echo "Warn: download file \"${title}\" is too short"
 }
 
-GetVideo() {
-	local url="${1}" \
-		title="${2}" \
-		sTime="${3}" \
-		eTime="${4}" \
-		lengthExpected="${5}"
-	ContentTypeVideo "${url}" && \
-	GetVideoPart "vlc" || \
-		GetVideoPart "ffmpeg"
-}
-
+# returns 0 when unknown
 GetDuration() {
 	local url="${1}"
-	LANGUAGE=C \
 	duration="$(LANGUAGE=C \
 		ffprobe -hide_banner -i "${url}" 2>&1 | \
 		sed -nre '/^[[:blank:]]*Duration: ([[:digit:]]+:[[:digit:]]+:[[:digit:]]+).*/{
 		s//\1/;p;q}')" || :
 	[ -n "${duration}" ] || \
-		return 1
+		duration="$(LANGUAGE=C \
+			yt-dlp --get-duration "${url}" 2> /dev/null)" || :
+	duration="${duration:-0}"
 }
 
 GetLengthAprox() {
@@ -258,12 +262,8 @@ GetLengthAprox() {
 
 GetLength() {
 	local url="${1}"
-	if [ -s "${url}" ]; then
-		length=$(_fileSize "${url}")
-		echo "Length of \"${url}\"=${length}, local file"
-	elif ContentTypeVideo "${url}" && \
-	length="$(ContentLength "${url}")"; then
-		echo "Length of \"${url}\"=${length}, usign wget"
+	if length="$(ContentLength "${url}")"; then
+		echo "Length of \"${url}\"=${length}"
 	elif length=$(GetLengthAprox "${url}"); then
 		LengthAprox=${length}
 		echo "Warn: only ffmpeg finds the video file corresponding to \"${url}\""
@@ -296,10 +296,8 @@ GetLengthM3u8() {
 	while read -r partn; do
 		Ext="${Ext:-"$(_extension "${partn}")"}"
 		let "dT+=$(duration=""
-			GetDuration "${partn}" >&2 && \
-			durationSeconds=$(TimestampToSeconds "${duration}") || \
-				durationSeconds=""
-			echo ${durationSeconds:-0}),1" || :
+			GetDuration "${partn}" >&2
+			TimestampToSeconds "${duration}"),1" || :
 		let "lT+=$(length=""
 			GetLength "${partn}" >&2
 			echo ${length:-0}),1"
@@ -332,7 +330,7 @@ VerifyData() {
 					v="$(sed -nre '/[[:blank:]]+/s///g' \
 						-e '/^0*([^:]+):0*([^:]+):0*([^:]+)$/{s//\1h\2m\3s/;p;q}' \
 						-e '/.*/{s//0/;p}' <<< "${s}")"
-					v="$(SecondsToHms "$(TimestampToSeconds "${v}" || echo 0)")"
+					v="$(SecondsToHms "$(TimestampToSeconds "${v}")")"
 				fi
 				for v in ${v}; do
 					[ -z "${Res}" ] && \
@@ -367,16 +365,17 @@ VerifyData() {
 	VideoUrl=""
 	if [ "${Url}" != "${urlPrev}" ]; then
 		LengthAprox=""
-		if GetDuration "${Url}"; then
+		GetDuration "${Url}"
+		if VideoUrl="$(yt-dlp "${Url}" --get-url 2> "${TmpDir}yt-dlp.txt")"; then
+			[ "${duration}" != "0" ] || \
+				GetDuration "${VideoUrl}"
+		elif [ "${duration}" != "0" ]; then
 			VideoUrl="${Url}"
-		elif VideoUrl="$(yt-dlp "${Url}" --get-url 2> "${TmpDir}yt-dlp.txt")"; then
-			GetDuration "${VideoUrl}" || :
 		else
 			grep -qsF "connection failed:" "${TmpDir}yt-dlp.txt" && \
 				echo "Err: connection failed to \"${Url}\"" || \
 				echo "Err: URL not found or does not contain a video"
-			duration="0:0:0"
-			durationSeconds=0
+			duration="0"
 			Err="y"
 			Ext=""
 		fi
@@ -454,13 +453,18 @@ VerifyData() {
 			echo "Setting title to \"${Title}\""
 	fi 2> /dev/null
 
-	printf '%s\n' "ogm" "ogg" "nut" "ts" "mpg" "mp4" \
-	"mov" "flv" "avi" "asf" "wmv" "mkv" | \
+	printf '%s\n' ${VIDEOEXTENSIONS} | \
 	grep -qsxF "${Ext}" || \
 		Ext="$(awk '{print $1}' < <(GetMux "${VideoUrl}"))"
-
-	[ ${durationSeconds} -ne 0 ] || \
+	[ -n "${Ext}" ] || {
+		echo "Video extension not found"
 		Err="y"
+	}
+	[ "${duration:=0}" != "0" ] && \
+	[ ${durationSeconds:=$(TimestampToSeconds "${duration}")} -ne 0 ] || {
+		echo "Video duration not found"
+		Err="y"
+	}
 	Intervals=""
 	Ts=0
 	Tl=0
@@ -610,6 +614,7 @@ Main() {
 		CurrDir="$(readlink -f .)/"
 	readonly TmpDir="${CurrDir}tmp-${MyId}/"
 	readonly Msgs="${TmpDir}msgs.txt"
+	readonly VIDEOEXTENSIONS="ogm ogg nut ts mpg mp4 mov flv avi asf wmv mkv"
 
 	local Url="" Title="" StdOut \
 		VideoUrl VideoUrlPrev DurationPrev LengthPrev ExtPrev \
@@ -707,13 +712,18 @@ Main() {
 			}
 			echo "file '$(basename "${title}")'" >> "${playlist}"
 		done
+		# -map 0 -vcodec copy -acodec copy -scodec mov_text
+		# -map 0 -c copy 
+		# -map 0 -c:v libx264 -crf 18 -preset slow -c:a copy
 		if [ -z "${Err}" ]; then
 			echo "ffmpeg concat" $(cat "${playlist}")
 			if ! ( cd "${TmpDir}"
 			LANGUAGE=C \
 			ffmpeg -nostdin -hide_banner -hwaccel auto -y \
 			-f concat -safe 0 -i "$(basename "${playlist}")" \
-			-map 0 -c copy "${CurrDir}${Title}" \
+			-map 0 -c copy \
+			-movflags +faststart -pix_fmt yuv420p \
+			"${CurrDir}${Title}" \
 			> "${TmpDir}${Title}.txt" 2>&1
 			); then
 				echo "Err: error in video concatenation"
