@@ -1,6 +1,9 @@
 video-partial-download v1.1
 
-  * 
+  * Better check ContentType and ContentLength.
+    Getting URL info from the web server,
+    or looking for local files.
+  * Improve the whole program behaviour.
 
  -- Jordi Pujol Palomer <jordipujolp@gmail.com>  Sun, 7 may 2023 17:21:48 +0200
 
