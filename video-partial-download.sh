@@ -196,7 +196,7 @@ GetVideo() {
 		case "${app}" in
 		vlc)
 			LANGUAGE=C \
-			vlc ${VlcOptions} \
+			${VlcOptions} \
 				--no-one-instance \
 				"${url}" \
 				--sout "#std{access=file,dst='${title}'}" \
@@ -372,6 +372,7 @@ VerifyData() {
 		elif [ "${duration}" != "0" ]; then
 			VideoUrl="${Url}"
 		else
+			ResPrev=""
 			grep -qsF "connection failed:" "${TmpDir}yt-dlp.txt" && \
 				echo "Err: connection failed to \"${Url}\"" || \
 				echo "Err: URL not found or does not contain a video"
@@ -633,11 +634,11 @@ Main() {
 		i title playlist length LengthAprox="" rc
 
 	mkdir -p "${TmpDir}"
-	VlcOptions=""
+	VlcOptions="vlc"
 	if [ -z "${Debug:=}" ]; then
-		VlcOptions="-I dummy"
+		VlcOptions="cvlc"
 	elif [ "${Debug}" = "xtrace" ]; then
-		VlcOptions="-v"
+		VlcOptions="vlc -v"
 		set +x
 		export PS4='+\t ${LINENO}:${FUNCNAME:+"${FUNCNAME}:"} '
 		exec {BASH_XTRACEFD}>> "${TmpDir}log.txt"
