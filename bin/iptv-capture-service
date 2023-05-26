@@ -1,0 +1,39 @@
+#!/bin/bash
+
+TmpDir="${1}"
+title="${2}"
+url="${3}"
+r="${4}"
+pgm="${5:-}"
+
+mkdir -p "${TmpDir}"
+cd "${TmpDir}"
+set -x
+exec > "${title}.txt" 2>&1
+case "${pgm}" in
+*ffmpeg)
+	LANGUAGE=C \
+	"${pgm}" -nostdin -hide_banner -hwaccel auto -y \
+		-i "${url}" \
+		-map 0 -ignore_unknown -c copy \
+		-t ${r} \
+		"${title}.ts" &
+	;;
+*)
+	LANGUAGE=C \
+	cvlc \
+		--no-one-instance \
+		"${url}" \
+		--sout "#std{access=file,dst='${title}.ts'}" \
+		--run-time ${r} \
+		vlc://quit &
+esac
+pid=${!}
+let "i=r+2,1"
+{ while let "i--" && \
+kill -s 0 ${pid}; do
+	sleep 1
+done
+kill -s 0 ${pid} && kill -s TERM ${pid} || :
+wait || :
+} 2> /dev/null

@@ -1,0 +1,18 @@
+Source: video-partial-download
+Section: utils
+Priority: optional
+Maintainer: Jordi Pujol Palomer <jordipujolp@gmail.com>
+Uploaders: Jordi Pujol Palomer <jordipujolp@gmail.com>
+Build-Depends: bash,
+
+Package: video-partial-download
+Architecture: all
+Depends: ${misc:Depends},
+ bash,
+ vlc | ffmpeg,
+ wget,
+Recommends:
+Suggests:
+Description: video partial download,
+ IP tv capture,
+ .

@@ -207,10 +207,10 @@ GetVideo() {
 			;;
 		ffmpeg)
 			LANGUAGE=C \
-			ffmpeg -y \
+			ffmpeg -nostdin -hide_banner -hwaccel auto -y \
+				-i "${url}" \
 				-ss ${sTime} \
 				-t $((eTime-sTime)) \
-				-i "${url}" \
 				"${title}"
 			;;
 		esac > "${TmpDir}$(basename "${title}")-${app}.txt" 2>&1

@@ -1,0 +1,253 @@
+#!/bin/bash
+
+#  iptv-capture
+#
+#  Capture digital video broadcast from URL.
+#  $Revision: 1.0 $
+#
+#  Copyright (C) 2023-2023 Jordi Pujol <jordipujolp AT gmail DOT com>
+#
+#  This program is free software; you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation; either version 3, or (at your option)
+#  any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software
+#  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+#************************************************************************
+
+SecondsToHms() {
+	local time=${1}
+	printf "%d\t" $((time/3600)) $(((time%3600)/60)) $((time%60))
+}
+
+TimestampToSeconds() {
+	local timestamp="${@}" \
+		time=0 factor=1 word
+	while read -r word; do
+		case "${word,,}" in
+		"") : ;;
+		:) let "factor*=(factor < 3600 ? 60 : 24),1" ;;
+		s*) factor=1 ;;
+		m*) factor=60 ;;
+		h*) factor=3600 ;;
+		d*) factor=86400 ;;
+		0) : ;;
+		[[:digit:]]*) let "time+=factor*word,1" ;;
+		*) return 1 ;;
+		esac
+	done < <(sed -r \
+	-e '/[[:blank:]]+/s///g' \
+	-e ':a' \
+	-e '/^0*([[:digit:]]+).*/{h;s//\1/;p
+		x;s/^[[:digit:]]+//
+		t a}' \
+	-e '/^([^[:digit:]]+).*/{h;s//\1/;p
+		x;s/^[^[:digit:]]+//
+		t a}' <<< "${timestamp}" | \
+	tac)
+
+	printf '%d\n' ${time}
+}
+
+Timestamp() {
+	local time="${@}"
+	printf "%02d:%02d:%02d\n" \
+		$(SecondsToHms $(TimestampToSeconds "${time}"))
+}
+
+SecondsToTimestamp() {
+	local time="${1}" \
+		factor=86400 t unit="d" \
+		timestamp=""
+	while [ ${time} -gt 0 ]; do
+		[ $((t=time/factor)) -eq 0 ] || {
+			let "time-=t*factor,1"
+			timestamp="${timestamp}${t}${unit}"
+		}
+		case "${unit}" in
+		d) unit="h";;
+		h) unit="m";;
+		m) unit="s";;
+		esac
+		let "factor/=(factor <= 3600 ? 60 : 24),1"
+	done
+	printf "%s\n" "${timestamp:-0}"
+}
+
+usage() {
+	echo "${NAME} -u|--url" \
+		"-s|--start" \
+		"-e|--end" \
+		"-i|--interval"
+		"-p|--pgm"
+	echo
+	echo "-u|--url"
+	echo "DVB broadcast URL, protocol + IP + path."
+	echo
+	echo "-s|--start"
+	echo "date/time to start the capture."
+	echo
+	echo "-e|--end"
+	echo "date/time to end."
+	echo
+	echo "-i|--interval"
+	echo "split the capture in intervals of time."
+	echo
+	echo "-p|--pgm"
+	echo "program that captures the video, ffmpeg or vlc."
+	echo
+	echo "-h|--help"
+	echo "shows a help text."
+	echo
+	echo "To schedule a capture, run the script."
+}
+
+_exit() {
+	trap - EXIT INT
+	set +o errexit +o nounset -o pipefail +o noglob
+	echo "exit" >&2
+	echo >&2
+	wait || :
+}
+
+Main() {
+	readonly LF=$'\n' \
+		DT=$(date +%s)
+		MyId="${DT}" \
+		CurrDir="$(readlink -f .)/"
+	readonly TmpDir="${CurrDir}tmp-${MyId}/"
+	readonly Msgs="${TmpDir}msgs.txt"
+
+	echo "${NAME} -u|--url" \
+		"-t|--title" \
+		"-s|--start" \
+		"-e|--end" \
+		"-i|--interval" \
+		"-p|--pgm" \
+		"-v|--verbose"
+
+	Options="$(getopt -o hu:t:s:e:i:p:v \
+	--long help,url:,title:,start:,end:,interval:,pgm:,verbose \
+	-n "${NAME}" -- "${@}")"
+	# Check for non-GNU getopt
+	if [ ${?} != 0 ] ; then
+		echo "Error: non-GNU getopt" >&2
+		exit 1
+	fi
+
+	eval set -- "${Options}"
+
+	Url=""; Title=""; Start=""; End=""; Interval=""; Pgm=""; Verbose=""
+	while :; do
+		case "${1}" in
+		-h|-\?|--help)
+			usage
+			exit 0
+			;;
+		-u|--url)
+			Url="${2}"
+			shift 2
+			;;
+		-t|--title)
+			Title="${2}"
+			shift 2
+			;;
+		-s|--start)
+			Start="${2}"
+			shift 2
+			;;
+		-e|--end)
+			End="${2}"
+			shift 2
+			;;
+		-i|--interval)
+			Interval="${2}"
+			shift 2
+			;;
+		-p|--pgm)
+			Pgm="${2}"
+			shift 2
+			;;
+		-v|--verbose)
+			Verbose="y"
+			shift
+			;;
+		--)
+			shift
+			break
+			;;
+		*)
+			usage
+			exit 1
+			;;
+		esac
+	done
+
+	err=""
+	start=$(date +%s --date "${Start}") && \
+	[ ${start} -gt ${DT} ] || {
+		echo "invalid start date \"${Start}\""
+		err="y"
+	}
+	end=$(date +%s --date "${End}") && \
+	[ ${end} -gt ${start:-${DT}} ] || {
+		echo "invalid stop date \"${End}\""
+		err="y"
+	}
+	interval="$(TimestampToSeconds "${Interval}")" && \
+	[ ${interval} -gt 0 ] || {
+		echo "invalid interval \"${Interval}\""
+		err="y"
+	}
+	[ -n "${Url}" ] || {
+		echo "Url is required"
+		err="y"
+	}
+	[ -n "${Title}" ] || {
+		echo "Title is required"
+		err="y"
+	}
+	pgm="${Pgm:-$(which ffmpeg || which cvlc)}"
+	[ -n "${pgm}" ] || {
+		echo "Can't find a capture app, ffmpeg or cvlc"
+		err="y"
+	}
+	[ -z "${err}" ] || \
+		exit 1
+
+	url="${Url}"
+	title="${Title}"
+
+	echo "\"${0}\" -u \"${url}\" -t \"${title}\" -s \"${start}\" -e \"${end}\"" \
+		"-i \"${interval}\" -p \"${pgm}\" -d \"${TmpDir}\""
+
+	mkdir -p "${TmpDir}"
+
+	d=5
+	i=0
+	for s in $(seq ${start} ${interval} ${end}); do
+		let "r=(s+interval < end ? interval : end-s)+d,++i,1"
+		systemd-run --user \
+		--on-calendar @${s} \
+		"/usr/bin/iptv-capture-service" \
+			"${TmpDir}" "${title}-${i}" "${url}" "${r}" "${pgm}"
+	done
+}
+
+set -o errexit -o nounset -o pipefail +o noglob +o noclobber
+
+declare -ar ARGV=("${@}")
+readonly ARGC=${#}
+NAME="$(basename "${0}")"
+
+trap '_exit' EXIT
+trap 'exit' INT
+
+Main "${@}"

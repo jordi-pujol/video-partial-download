@@ -1,4 +1,4 @@
-video-partial-download v1.1
+video-partial-download (1.1) unstable; urgency=medium
 
   * Better check ContentType and ContentLength.
     Getting URL info from the web server,
@@ -7,7 +7,7 @@ video-partial-download v1.1
 
  -- Jordi Pujol Palomer <jordipujolp@gmail.com>  Sun, 7 may 2023 17:21:48 +0200
 
-video-partial-download v1.0
+video-partial-download (1.0) unstable; urgency=medium
 
   * Initial release.
 
