@@ -216,7 +216,7 @@ Main() {
 	}
 	pgm="${Pgm:-$(which ffmpeg || test $(id -u) -eq 0 || which cvlc)}"
 	[ -n "${pgm}" ] || {
-		echo "Can't find a capture app, ffmpeg or cvlc"
+		echo "Can't find any capture app, ffmpeg or cvlc"
 		err="y"
 	}
 	[ -z "${err}" ] || \

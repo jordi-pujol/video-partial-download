@@ -33,7 +33,16 @@ cd "${TmpDir}"
 set -x
 exec > "${title}.txt" 2>&1
 case "${pgm}" in
-*ffmpeg)
+*vlc)
+	LANGUAGE=C \
+	"${pgm}" \
+		--no-one-instance \
+		"${url}" \
+		--sout "#std{access=file,dst='${title}.ts'}" \
+		--run-time ${r} \
+		vlc://quit &
+	;;
+*)
 	LANGUAGE=C \
 	"${pgm}" -nostdin -hide_banner -hwaccel auto -y \
 		-i "${url}" \
@@ -41,21 +50,13 @@ case "${pgm}" in
 		-t ${r} \
 		"${title}.ts" &
 	;;
-*)
-	LANGUAGE=C \
-	cvlc \
-		--no-one-instance \
-		"${url}" \
-		--sout "#std{access=file,dst='${title}.ts'}" \
-		--run-time ${r} \
-		vlc://quit &
 esac
 pid=${!}
-{ while sleep 1;
-let "r--" && \
-kill -s 0 ${pid}; do
-	:
-done
-kill -s 0 ${pid} && kill -s TERM ${pid} || :
-wait || :
+{	while sleep 1;
+	let "r--" && \
+	kill -s 0 ${pid}; do
+		:
+	done
+	kill -s 0 ${pid} && kill -s TERM ${pid} || :
+	wait || :
 } 2> /dev/null
