@@ -1,5 +1,27 @@
 #!/bin/bash
 
+#  iptv-capture
+#
+#  Capture digital video broadcast from URL.
+#  $Revision: 1.2 $
+#
+#  Copyright (C) 2023-2023 Jordi Pujol <jordipujolp AT gmail DOT com>
+#
+#  This program is free software; you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation; either version 3, or (at your option)
+#  any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software
+#  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+#************************************************************************
+
 TmpDir="${1}"
 title="${2}"
 url="${3}"
@@ -29,10 +51,10 @@ case "${pgm}" in
 		vlc://quit &
 esac
 pid=${!}
-let "i=r+2,1"
-{ while let "i--" && \
+{ while sleep 1;
+let "r--" && \
 kill -s 0 ${pid}; do
-	sleep 1
+	:
 done
 kill -s 0 ${pid} && kill -s TERM ${pid} || :
 wait || :

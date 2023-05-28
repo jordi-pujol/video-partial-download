@@ -3,7 +3,7 @@
 #  iptv-capture
 #
 #  Capture digital video broadcast from URL.
-#  $Revision: 1.0 $
+#  $Revision: 1.2 $
 #
 #  Copyright (C) 2023-2023 Jordi Pujol <jordipujolp AT gmail DOT com>
 #
@@ -214,7 +214,7 @@ Main() {
 		echo "Title is required"
 		err="y"
 	}
-	pgm="${Pgm:-$(which ffmpeg || which cvlc)}"
+	pgm="${Pgm:-$(which ffmpeg || test $(id -u) -eq 0 || which cvlc)}"
 	[ -n "${pgm}" ] || {
 		echo "Can't find a capture app, ffmpeg or cvlc"
 		err="y"
