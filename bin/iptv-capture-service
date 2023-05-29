@@ -60,16 +60,11 @@ exec > "${title}.txt" 2>&1
 	*)
 		LANGUAGE=C \
 		"${pgm}" -nostdin -hide_banner -hwaccel auto -y \
+			-t ${r} \
 			-i "${url}" \
 			-map 0 -ignore_unknown -c copy \
-			-t ${r} \
 			"${title}.ts" || :
 		;;
 	esac
-	kill -s INT ${PID}
-} &
-pid=${!}
-{ sleep ${r} && \
-	kill -s TERM ${pid}
 } &
 wait || :
