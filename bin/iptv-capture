@@ -234,10 +234,33 @@ Main() {
 	i=0
 	for s in $(seq ${start} ${interval} ${end}); do
 		let "r=(s+interval < end ? interval : end-s)+d,++i,1"
-		systemd-run --user \
-		--on-calendar @${s} \
-		"/usr/bin/iptv-capture-service" \
-			"${TmpDir}" "${title}-${i}" "${url}" "${r}" "${pgm}"
+		case "${pgm}" in
+		*vlc)
+			systemd-run --user \
+			--on-calendar @${s} \
+			--working-directory="${TmpDir}" \
+			--property="StandardOutput=append:${TmpDir}${title}-${i}.log" \
+			--property="StandardError=append:${TmpDir}${title}-${i}.log" \
+			"${pgm}" \
+				--no-one-instance \
+				"${url}" \
+				--sout "#std{access=file,dst='${title}-${i}.ts'}" \
+				--run-time ${r} \
+				vlc://quit
+			;;
+		*)
+			systemd-run --user \
+			--on-calendar @${s} \
+			--working-directory="${TmpDir}" \
+			--property="StandardOutput=append:${TmpDir}${title}-${i}.log" \
+			--property="StandardError=append:${TmpDir}${title}-${i}.log" \
+			"${pgm}" -nostdin -hide_banner -hwaccel auto -y \
+				-t ${r} \
+				-i "${url}" \
+				-map 0 -ignore_unknown -c copy \
+				"${title}-${i}.ts"
+			;;
+		esac
 	done
 }
 
