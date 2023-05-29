@@ -28,35 +28,48 @@ url="${3}"
 r="${4}"
 pgm="${5:-}"
 
+_exit() {
+	trap - EXIT INT
+	set +o errexit +o nounset -o pipefail +o noglob
+	kill -s TERM ${pid} ${pids} || :
+	echo "exit" >&2
+	echo >&2
+	wait || :
+}
+
+trap '_exit' EXIT
+trap 'exit' INT
+
+PID=${$}
+pid=""
+pids=""
 mkdir -p "${TmpDir}"
 cd "${TmpDir}"
-set -x
+#set -x
 exec > "${title}.txt" 2>&1
-case "${pgm}" in
-*vlc)
-	LANGUAGE=C \
-	"${pgm}" \
-		--no-one-instance \
-		"${url}" \
-		--sout "#std{access=file,dst='${title}.ts'}" \
-		--run-time ${r} \
-		vlc://quit &
-	;;
-*)
-	LANGUAGE=C \
-	"${pgm}" -nostdin -hide_banner -hwaccel auto -y \
-		-i "${url}" \
-		-map 0 -ignore_unknown -c copy \
-		-t ${r} \
-		"${title}.ts" &
-	;;
-esac
+{	case "${pgm}" in
+	*vlc)
+		LANGUAGE=C \
+		"${pgm}" \
+			--no-one-instance \
+			"${url}" \
+			--sout "#std{access=file,dst='${title}.ts'}" \
+			--run-time ${r} \
+			vlc://quit || :
+		;;
+	*)
+		LANGUAGE=C \
+		"${pgm}" -nostdin -hide_banner -hwaccel auto -y \
+			-i "${url}" \
+			-map 0 -ignore_unknown -c copy \
+			-t ${r} \
+			"${title}.ts" || :
+		;;
+	esac
+	kill -s INT ${PID}
+} &
 pid=${!}
-{	while sleep 1;
-	let "r--" && \
-	kill -s 0 ${pid}; do
-		:
-	done
-	kill -s 0 ${pid} && kill -s TERM ${pid} || :
-	wait || :
-} 2> /dev/null
+{ sleep ${r} && \
+	kill -s TERM ${pid}
+} &
+wait || :
