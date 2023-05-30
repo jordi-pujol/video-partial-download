@@ -40,7 +40,7 @@ TimestampToSeconds() {
 		d*) factor=86400 ;;
 		0) : ;;
 		[[:digit:]]*) let "time+=factor*word,1" ;;
-		*) return 1 ;;
+		*) time=0; break ;;
 		esac
 	done < <(sed -r \
 	-e '/[[:blank:]]+/s///g' \
@@ -201,7 +201,9 @@ Main() {
 		echo "invalid stop date \"${End}\""
 		err="y"
 	}
-	interval="$(TimestampToSeconds "${Interval}")" && \
+	interval="$(TimestampToSeconds "${Interval}")"
+	[ ${interval} -gt 0 -o -n "${err}" ] || \
+		let "interval=1+end-start,1"
 	[ ${interval} -gt 0 ] || {
 		echo "invalid interval \"${Interval}\""
 		err="y"
@@ -227,6 +229,11 @@ Main() {
 
 	echo "\"${0}\" -u \"${url}\" -t \"${title}\" -s \"${start}\" -e \"${end}\"" \
 		"-i \"${interval}\" -p \"${pgm}\" -d \"${TmpDir}\""
+	if [ -t 0 ]; then
+		read -e -p 'Proceed y/N ? ' ans
+		[ "${ans,,}" = "y" ] || \
+			exit 1
+	fi
 
 	mkdir -p "${TmpDir}"
 
@@ -248,7 +255,7 @@ Main() {
 				--run-time ${r} \
 				vlc://quit
 			;;
-		*)
+		*ffmpeg)
 			systemd-run --user \
 			--on-calendar @${s} \
 			--working-directory="${TmpDir}" \
