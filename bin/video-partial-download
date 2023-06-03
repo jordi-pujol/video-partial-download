@@ -342,7 +342,7 @@ VerifyData() {
 		[ -n "${Res}" ] || \
 			Res="${1:-}${LF}${2:-}${LF}0"
 		Res="${Res}$(printf '\n0%.0s' \
-			$(seq 1 $((2+4*6-$(wc -l <<< "${Res}")))))"
+			$(seq $((2+4*6-$(wc -l <<< "${Res}")))))"
 	fi
 
 	Err=""
@@ -470,7 +470,7 @@ VerifyData() {
 	Ts=0
 	Tl=0
 	line=0
-	for i in $(seq 1 4); do
+	for i in $(seq 4); do
 		ierr=""
 		ss=0
 		se=0

@@ -82,26 +82,31 @@ SecondsToTimestamp() {
 }
 
 usage() {
-	echo "${NAME} -u|--url" \
-		"-s|--start" \
-		"-e|--end" \
-		"-i|--interval"
-		"-p|--pgm"
+	echo "${NAME} -u|--url URL" \
+		"-s|--start d/t" \
+		"-e|--end d/t" \
+		"-i|--interval sec" \
+		"-p|--pgm PGM" \
+		"-y|--yes" \
+		"-h|--help"
 	echo
-	echo "-u|--url"
+	echo "-u|--url URL"
 	echo "DVB broadcast URL, protocol + IP + path."
 	echo
-	echo "-s|--start"
+	echo "-s|--start date/time"
 	echo "date/time to start the capture."
 	echo
-	echo "-e|--end"
+	echo "-e|--end date/time"
 	echo "date/time to end."
 	echo
-	echo "-i|--interval"
-	echo "split the capture in intervals of time."
+	echo "-i|--interval timestamp/seconds"
+	echo "split the capture in seconds of time."
 	echo
-	echo "-p|--pgm"
+	echo "-p|--pgm pgm"
 	echo "program that captures the video, ffmpeg or vlc."
+	echo
+	echo "-y|--yes"
+	echo "don't request user confirmation."
 	echo
 	echo "-h|--help"
 	echo "shows a help text."
@@ -131,6 +136,8 @@ Main() {
 		"-e|--end" \
 		"-i|--interval" \
 		"-p|--pgm" \
+		"-y|--yes" \
+		"-h|--help" \
 		"-v|--verbose"
 
 	Options="$(getopt -o hu:t:s:e:i:p:v \
@@ -144,7 +151,7 @@ Main() {
 
 	eval set -- "${Options}"
 
-	Url=""; Title=""; Start=""; End=""; Interval=""; Pgm=""; Verbose=""
+	Url=""; Title=""; Start=""; End=""; Interval=""; Pgm=""; Verbose=""; Yes=""
 	while :; do
 		case "${1}" in
 		-h|-\?|--help)
@@ -174,6 +181,10 @@ Main() {
 		-p|--pgm)
 			Pgm="${2}"
 			shift 2
+			;;
+		-y|--yes)
+			Yes="y"
+			shift
 			;;
 		-v|--verbose)
 			Verbose="y"
@@ -229,7 +240,7 @@ Main() {
 
 	echo "\"${0}\" -u \"${url}\" -t \"${title}\" -s \"${start}\" -e \"${end}\"" \
 		"-i \"${interval}\" -p \"${pgm}\" -d \"${TmpDir}\""
-	if [ -t 0 ]; then
+	if [ -z "${Yes}" -a -t 0 ]; then
 		read -e -p 'Proceed y/N ? ' ans
 		[ "${ans,,}" = "y" ] || \
 			exit 1
