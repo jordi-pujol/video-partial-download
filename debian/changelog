@@ -1,3 +1,10 @@
+video-partial-download (1.3) unstable; urgency=medium
+
+  * dvbserver:
+    Has been removed, now is part of the DvbOnDemand package.
+
+ -- Jordi Pujol Palomer <jordipujolp@gmail.com>  Wed, 31 May 2023 08:47:11 +0200
+
 video-partial-download (1.2) unstable; urgency=medium
 
   * dvbserver:
